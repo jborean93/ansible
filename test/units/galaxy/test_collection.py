@@ -253,17 +253,18 @@ def test_build_ignore_files_and_folders(collection_input, monkeypatch):
         ignore_file.write('random')
         ignore_file.flush()
 
-    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection')
+    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection', [])
 
     assert actual['format'] == 1
     for manifest_entry in actual['files']:
         assert manifest_entry['name'] not in ['.git', 'ansible.retry', 'galaxy.yml']
 
     expected_msgs = [
+        "Skipping 'galaxy.yml' for collection build",
         "Skipping '%s' for collection build" % to_text(retry_file),
         "Skipping '%s' for collection build" % to_text(git_folder),
     ]
-    assert mock_display.call_count == 2
+    assert mock_display.call_count == 3
     assert mock_display.mock_calls[0][1][0] in expected_msgs
     assert mock_display.mock_calls[1][1][0] in expected_msgs
 
@@ -285,7 +286,7 @@ def test_build_ignore_older_release_in_root(collection_input, monkeypatch):
             file_obj.write('random')
             file_obj.flush()
 
-    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection')
+    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection', [])
     assert actual['format'] == 1
 
     plugin_release_found = False
@@ -296,8 +297,62 @@ def test_build_ignore_older_release_in_root(collection_input, monkeypatch):
 
     assert plugin_release_found
 
-    assert mock_display.call_count == 1
-    assert mock_display.mock_calls[0][1][0] == "Skipping '%s' for collection build" % to_text(release_file)
+    expected_msgs = [
+        "Skipping '%s/galaxy.yml' for collection build" % to_text(input_dir),
+        "Skipping '%s' for collection build" % to_text(release_file)
+    ]
+    assert mock_display.call_count == 2
+    assert mock_display.mock_calls[0][1][0] in expected_msgs
+    assert mock_display.mock_calls[1][1][0] in expected_msgs
+
+
+def test_build_ignore_patterns(collection_input, monkeypatch):
+    input_dir = collection_input[0]
+
+    mock_display = MagicMock()
+    monkeypatch.setattr(Display, 'vvv', mock_display)
+
+    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection',
+                                              ['*.md', 'plugins/action', 'playbooks/*.j2'])
+    assert actual['format'] == 1
+
+    expected_missing = [
+        'README.md',
+        'docs/My Collection.md',
+        'plugins/action',
+        'playbooks/templates/test.conf.j2',
+        'playbooks/templates/subfolder/test.conf.j2',
+    ]
+
+    # Files or dirs that are close to a match but are not, make sure they are present
+    expected_present = [
+        'docs',
+        'roles/common/templates/test.conf.j2',
+        'roles/common/templates/subfolder/test.conf.j2',
+    ]
+
+    actual_files = [e['name'] for e in actual['files']]
+    for m in expected_missing:
+        assert m not in actual_files
+
+    for p in expected_present:
+        assert p in actual_files
+
+    expected_msgs = [
+        "Skipping '%s/galaxy.yml' for collection build" % to_text(input_dir),
+        "Skipping '%s/README.md' for collection build" % to_text(input_dir),
+        "Skipping '%s/docs/My Collection.md' for collection build" % to_text(input_dir),
+        "Skipping '%s/plugins/action' for collection build" % to_text(input_dir),
+        "Skipping '%s/playbooks/templates/test.conf.j2' for collection build" % to_text(input_dir),
+        "Skipping '%s/playbooks/templates/subfolder/test.conf.j2' for collection build" % to_text(input_dir),
+    ]
+    assert mock_display.call_count == len(expected_msgs)
+    assert mock_display.mock_calls[0][1][0] in expected_msgs
+    assert mock_display.mock_calls[1][1][0] in expected_msgs
+    assert mock_display.mock_calls[2][1][0] in expected_msgs
+    assert mock_display.mock_calls[3][1][0] in expected_msgs
+    assert mock_display.mock_calls[4][1][0] in expected_msgs
+    assert mock_display.mock_calls[5][1][0] in expected_msgs
 
 
 def test_build_ignore_symlink_target_outside_collection(collection_input, monkeypatch):
@@ -309,7 +364,7 @@ def test_build_ignore_symlink_target_outside_collection(collection_input, monkey
     link_path = os.path.join(input_dir, 'plugins', 'connection')
     os.symlink(outside_dir, link_path)
 
-    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection')
+    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection', [])
     for manifest_entry in actual['files']:
         assert manifest_entry['name'] != 'plugins/connection'
 
@@ -333,7 +388,7 @@ def test_build_copy_symlink_target_inside_collection(collection_input):
 
     os.symlink(roles_target, roles_link)
 
-    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection')
+    actual = collection._build_files_manifest(to_bytes(input_dir), 'namespace', 'collection', [])
 
     linked_entries = [e for e in actual['files'] if e['name'].startswith('playbooks/roles/linked')]
     assert len(linked_entries) == 3

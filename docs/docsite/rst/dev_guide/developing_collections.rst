@@ -243,6 +243,40 @@ a tarball of the built collection in the current directory which can be uploaded
 This tarball is mainly intended to upload to Galaxy
 as a distribution method, but you can use it directly to install the collection on target systems.
 
+.. _ignoring_files_and_folders_collections:
+
+Ignoring files and folders
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+By default the build step will include all the files in the collection directory in the final build artifact except for
+
+* ``galaxy.yml``
+* ``*.pyc``
+* ``*.retry``
+* Various version control directories like ``.git/``
+
+To exclude other files and folders when building the collection you can set a list of file glob like patterns in the
+``build_ignore`` key in the collection's ``galaxy.yml`` file. These patterns use the following special characters for
+wildcard matching:
+
+* ``*``: Matches everything
+* ``?``: Matches any single character
+* ``[seq]``: Matches and character in seq
+* ``[!seq]``:Matches any character not in seq
+
+For example if you wanted to exclude the ``ansible-test`` result output directory as well any ``.tar.gz`` archives you
+can set the following in your ``galaxy.yml`` file:
+
+.. code-block:: yaml
+
+     build_ignore:
+     - tests/output
+     - '*.tar.gz'
+
+.. note::
+     This feature is only supported when running ``ansible-galaxy collection build`` with Ansible 2.10 or newer.
+
+
 .. _trying_collection_locally:
 
 Trying collection locally
