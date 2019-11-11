@@ -264,13 +264,13 @@ wildcard matching:
 * ``[seq]``: Matches and character in seq
 * ``[!seq]``:Matches any character not in seq
 
-For example if you wanted to exclude the ``ansible-test`` result output directory as well any ``.tar.gz`` archives you
+For example if you wanted to exclude the sensitive folder in ``playbooks`` folder as well any ``.tar.gz`` archives you
 can set the following in your ``galaxy.yml`` file:
 
 .. code-block:: yaml
 
      build_ignore:
-     - tests/output
+     - playbooks/sensitive
      - '*.tar.gz'
 
 .. note::

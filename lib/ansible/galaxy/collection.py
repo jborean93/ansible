@@ -606,6 +606,7 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns):
         b'galaxy.yml',
         b'*.pyc',
         b'*.retry',
+        b'tests/output',  # Ignore ansible-test result output directory.
         to_bytes('{0}-{1}-*.tar.gz'.format(namespace, name)),  # Ignores previously built artifacts in the root dir.
     ]
     b_ignore_patterns += [to_bytes(p) for p in ignore_patterns]
