@@ -10,98 +10,13 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using Ansible.AccessToken;
+using Ansible.Lsa;
 using Ansible.Process;
 
 namespace Ansible.Become
 {
-    internal class NativeHelpers
-    {
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct KERB_S4U_LOGON
-        {
-            public UInt32 MessageType;
-            public UInt32 Flags;
-            public LSA_UNICODE_STRING ClientUpn;
-            public LSA_UNICODE_STRING ClientRealm;
-        }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-        public struct LSA_STRING
-        {
-            public UInt16 Length;
-            public UInt16 MaximumLength;
-            [MarshalAs(UnmanagedType.LPStr)] public string Buffer;
-
-            public static implicit operator string(LSA_STRING s)
-            {
-                return s.Buffer;
-            }
-
-            public static implicit operator LSA_STRING(string s)
-            {
-                if (s == null)
-                    s = "";
-
-                LSA_STRING lsaStr = new LSA_STRING
-                {
-                    Buffer = s,
-                    Length = (UInt16)s.Length,
-                    MaximumLength = (UInt16)(s.Length + 1),
-                };
-                return lsaStr;
-            }
-        }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct LSA_UNICODE_STRING
-        {
-            public UInt16 Length;
-            public UInt16 MaximumLength;
-            public IntPtr Buffer;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SECURITY_LOGON_SESSION_DATA
-        {
-            public UInt32 Size;
-            public Luid LogonId;
-            public LSA_UNICODE_STRING UserName;
-            public LSA_UNICODE_STRING LogonDomain;
-            public LSA_UNICODE_STRING AuthenticationPackage;
-            public SECURITY_LOGON_TYPE LogonType;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct TOKEN_SOURCE
-        {
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)] public char[] SourceName;
-            public Luid SourceIdentifier;
-        }
-
-        public enum SECURITY_LOGON_TYPE
-        {
-            System = 0, // Used only by the Sytem account
-            Interactive = 2,
-            Network,
-            Batch,
-            Service,
-            Proxy,
-            Unlock,
-            NetworkCleartext,
-            NewCredentials,
-            RemoteInteractive,
-            CachedInteractive,
-            CachedRemoteInteractive,
-            CachedUnlock
-        }
-    }
-
     internal class NativeMethods
     {
-        [DllImport("advapi32.dll", SetLastError = true)]
-        public static extern bool AllocateLocallyUniqueId(
-            out Luid Luid);
-
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool CreateProcessWithTokenW(
             SafeNativeHandle hToken,
@@ -123,76 +38,6 @@ namespace Ansible.Become
         [DllImport("user32.dll", SetLastError = true)]
         public static extern NoopSafeHandle GetThreadDesktop(
             UInt32 dwThreadId);
-
-        [DllImport("secur32.dll", SetLastError = true)]
-        public static extern UInt32 LsaDeregisterLogonProcess(
-            IntPtr LsaHandle);
-
-        [DllImport("secur32.dll", SetLastError = true)]
-        public static extern UInt32 LsaFreeReturnBuffer(
-            IntPtr Buffer);
-
-        [DllImport("secur32.dll", SetLastError = true)]
-        public static extern UInt32 LsaGetLogonSessionData(
-            ref Luid LogonId,
-            out SafeLsaMemoryBuffer ppLogonSessionData);
-
-        [DllImport("secur32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern UInt32 LsaLogonUser(
-            SafeLsaHandle LsaHandle,
-            NativeHelpers.LSA_STRING OriginName,
-            LogonType LogonType,
-            UInt32 AuthenticationPackage,
-            IntPtr AuthenticationInformation,
-            UInt32 AuthenticationInformationLength,
-            IntPtr LocalGroups,
-            NativeHelpers.TOKEN_SOURCE SourceContext,
-            out SafeLsaMemoryBuffer ProfileBuffer,
-            out UInt32 ProfileBufferLength,
-            out Luid LogonId,
-            out SafeNativeHandle Token,
-            out IntPtr Quotas,
-            out UInt32 SubStatus);
-
-        [DllImport("secur32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern UInt32 LsaLookupAuthenticationPackage(
-            SafeLsaHandle LsaHandle,
-            NativeHelpers.LSA_STRING PackageName,
-            out UInt32 AuthenticationPackage);
-
-        [DllImport("advapi32.dll")]
-        public static extern UInt32 LsaNtStatusToWinError(
-            UInt32 Status);
-
-        [DllImport("secur32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern UInt32 LsaRegisterLogonProcess(
-            NativeHelpers.LSA_STRING LogonProcessName,
-            out SafeLsaHandle LsaHandle,
-            out IntPtr SecurityMode);
-    }
-
-    internal class SafeLsaHandle : SafeHandleZeroOrMinusOneIsInvalid
-    {
-        public SafeLsaHandle() : base(true) { }
-
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
-        protected override bool ReleaseHandle()
-        {
-            UInt32 res = NativeMethods.LsaDeregisterLogonProcess(handle);
-            return res == 0;
-        }
-    }
-
-    internal class SafeLsaMemoryBuffer : SafeHandleZeroOrMinusOneIsInvalid
-    {
-        public SafeLsaMemoryBuffer() : base(true) { }
-
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
-        protected override bool ReleaseHandle()
-        {
-            UInt32 res = NativeMethods.LsaFreeReturnBuffer(handle);
-            return res == 0;
-        }
     }
 
     internal class NoopSafeHandle : SafeHandle
@@ -213,12 +58,18 @@ namespace Ansible.Become
 
     public class BecomeUtil
     {
-        private static List<string> SERVICE_SIDS = new List<string>()
+        private static SecurityIdentifier SYSTEM_SID = new SecurityIdentifier("S-1-5-18");
+        private static SecurityIdentifier LOCAL_SERVICE_SID = new SecurityIdentifier("S-1-5-19");
+        private static SecurityIdentifier NETWORK_SERVICE_SID = new SecurityIdentifier("S-1-5-20");
+        private static string SERVICE_SID_PREFIX = "S-1-5-80-";
+
+        private static List<SecurityIdentifier> SERVICE_SIDS = new List<SecurityIdentifier>()
         {
-            "S-1-5-18", // NT AUTHORITY\SYSTEM
-            "S-1-5-19", // NT AUTHORITY\LocalService
-            "S-1-5-20"  // NT AUTHORITY\NetworkService
+            SYSTEM_SID,
+            LOCAL_SERVICE_SID,
+            NETWORK_SERVICE_SID,
         };
+
         private static int WINDOWS_STATION_ALL_ACCESS = 0x000F037F;
         private static int DESKTOP_RIGHTS_ALL_ACCESS = 0x000F01FF;
 
@@ -322,51 +173,83 @@ namespace Ansible.Become
         {
             List<SafeNativeHandle> userTokens = new List<SafeNativeHandle>();
 
-            SafeNativeHandle systemToken = null;
             bool impersonated = false;
-            string becomeSid = username;
+            SecurityIdentifier becomeSid = null;
+            List<GroupInfo> extraGroups = new List<GroupInfo>();
+            SafeNativeHandle systemToken = null;
             if (logonType != LogonType.NewCredentials)
             {
-                // If prefixed with .\, we are becoming a local account, strip the prefix
+                // Try and impersonate a SYSTEM token, we need a SYSTEM token to either become a well known service
+                // account or have administrative rights on the become access token.
+                //using (SafeNativeHandle systemToken = GetPrimaryTokenForUser(SYSTEM_SID,
+                //    new List<string>() { "SeTcbPrivilege" }))
+                systemToken = GetPrimaryTokenForUser(SYSTEM_SID, new List<string>() { "SeTcbPrivilege" });
+                if (systemToken != null)
+                {
+                    if (systemToken != null)
+                    {
+                        try
+                        {
+                            TokenUtil.ImpersonateToken(systemToken);
+                            impersonated = true;
+                        }
+                        catch (Process.Win32Exception) { }  // We tried, just rely on current user's permissions.
+                    }
+                }
+
+                // If prefixed with .\, we are becoming a local account, strip the prefix then finally normalise the
+                // account nae.
                 if (username.StartsWith(".\\"))
                     username = username.Substring(2);
 
-                NTAccount account = new NTAccount(username);
-                becomeSid = ((SecurityIdentifier)account.Translate(typeof(SecurityIdentifier))).Value;
+                becomeSid = (SecurityIdentifier)new NTAccount(username).Translate(typeof(SecurityIdentifier));
+
+                if (becomeSid.Value.StartsWith(SERVICE_SID_PREFIX))
+                {
+                    // Seems like LsaLogonUser fails when the first group is an NT SERVICE group, instead we will add
+                    // 2 groups with the first one being the target become user with SE_GROUP_OWNER which does not add
+                    // any more privileges than what they would have had before.
+                    extraGroups.Add(new GroupInfo()
+                    {
+                        Sid = SYSTEM_SID,
+                        Attributes = GroupAttributes.Owner,
+                    });
+                    extraGroups.Add(new GroupInfo() {
+                        Sid = becomeSid,
+                        Attributes = GroupAttributes.Enabled | GroupAttributes.EnabledByDefault |
+                            GroupAttributes.Owner,
+                    });
+
+                    // TODO: Use the actual service account name.
+                    becomeSid = SYSTEM_SID;
+                }
+                username = becomeSid.Translate(typeof(NTAccount)).Value;
 
                 // Grant access to the current Windows Station and Desktop to the become user
-                GrantAccessToWindowStationAndDesktop(account);
+                GrantAccessToWindowStationAndDesktop(becomeSid);
+            }
 
-                // Try and impersonate a SYSTEM token, we need a SYSTEM token to either become a well known service
-                // account or have administrative rights on the become access token.
-                systemToken = GetPrimaryTokenForUser(new SecurityIdentifier("S-1-5-18"), new List<string>() { "SeTcbPrivilege" });
-                if (systemToken != null)
-                {
-                    try
-                    {
-                        TokenUtil.ImpersonateToken(systemToken);
-                        impersonated = true;
-                    }
-                    catch (Process.Win32Exception) { }  // We tried, just rely on current user's permissions.
-                }
+            string domain = "";
+            if (username.Contains(@"\"))
+            {
+                string[] userSplit = username.Split(new char[] { '\\' }, 2);
+                domain = userSplit[0];
+                username = userSplit[1];
             }
 
             // We require impersonation if becoming a service sid or becoming a user without a password
-            if (!impersonated && (SERVICE_SIDS.Contains(becomeSid) || String.IsNullOrEmpty(password)))
+            if (!impersonated && (SERVICE_SIDS.Contains(becomeSid) || String.IsNullOrEmpty(password) || extraGroups.Count > 0))
                 throw new Exception("Failed to get token for NT AUTHORITY\\SYSTEM required for become as a service account or an account without a password");
 
             try
             {
-                if (becomeSid == "S-1-5-18")
-                    userTokens.Add(systemToken);
                 // Cannot use String.IsEmptyOrNull() as an empty string is an account that doesn't have a pass.
                 // We only use S4U if no password was defined or it was null
-                else if (!SERVICE_SIDS.Contains(becomeSid) && password == null && logonType != LogonType.NewCredentials)
+                if (!SERVICE_SIDS.Contains(becomeSid) && password == null && logonType != LogonType.NewCredentials)
                 {
                     // If no password was specified, try and duplicate an existing token for that user or use S4U to
                     // generate one without network credentials
-                    SecurityIdentifier sid = new SecurityIdentifier(becomeSid);
-                    SafeNativeHandle becomeToken = GetPrimaryTokenForUser(sid);
+                    SafeNativeHandle becomeToken = GetPrimaryTokenForUser(becomeSid);
                     if (becomeToken != null)
                     {
                         userTokens.Add(GetElevatedToken(becomeToken));
@@ -374,41 +257,25 @@ namespace Ansible.Become
                     }
                     else
                     {
-                        becomeToken = GetS4UTokenForUser(sid, logonType);
-                        userTokens.Add(null);
+                        // S4U only supports a Batch or Network logon, fallback to Batch unless Network was
+                        // explicitly set.
+                        if (logonType != LogonType.Network)
+                            logonType = LogonType.Batch;
+
+                        becomeToken = LsaUtil.LogonUserS4U(username, domain, logonType, extraGroups);
                         userTokens.Add(becomeToken);
                     }
                 }
                 else
                 {
-                    string domain = null;
-                    switch (becomeSid)
+                    if (SERVICE_SIDS.Contains(becomeSid))
                     {
-                        case "S-1-5-19":
-                            logonType = LogonType.Service;
-                            domain = "NT AUTHORITY";
-                            username = "LocalService";
-                            break;
-                        case "S-1-5-20":
-                            logonType = LogonType.Service;
-                            domain = "NT AUTHORITY";
-                            username = "NetworkService";
-                            break;
-                        default:
-                            // Trying to become a local or domain account
-                            if (username.Contains(@"\"))
-                            {
-                                string[] userSplit = username.Split(new char[1] { '\\' }, 2);
-                                domain = userSplit[0];
-                                username = userSplit[1];
-                            }
-                            else if (!username.Contains("@"))
-                                domain = ".";
-                            break;
+                        logonType = LogonType.Service;
+                        password = "";
                     }
 
-                    SafeNativeHandle hToken = TokenUtil.LogonUser(username, domain, password, logonType,
-                        LogonProvider.Default);
+                    SafeNativeHandle hToken = LsaUtil.LogonUserInteractive(username, domain, password, logonType,
+                        extraGroups);
 
                     // Get the elevated token for a local/domain accounts only
                     if (!SERVICE_SIDS.Contains(becomeSid))
@@ -439,9 +306,17 @@ namespace Ansible.Become
             {
                 // Filter out any Network logon tokens, using become with that is useless when S4U
                 // can give us a Batch logon
-                NativeHelpers.SECURITY_LOGON_TYPE tokenLogonType = GetTokenLogonType(hToken);
-                if (tokenLogonType == NativeHelpers.SECURITY_LOGON_TYPE.Network)
+                TokenStatistics stats = TokenUtil.GetTokenStatistics(hToken);
+                try
+                {
+                    LogonType tokenLogonType = LsaUtil.GetLogonSessionData(stats.AuthenticationId).LogonType;
+                    if (tokenLogonType == LogonType.Network)
+                        continue;
+                }
+                catch (LsaException)
+                {
                     continue;
+                }
 
                 // Check that the required privileges are on the token
                 if (requiredPrivileges != null)
@@ -467,99 +342,6 @@ namespace Ansible.Become
             return null;
         }
 
-        private static SafeNativeHandle GetS4UTokenForUser(SecurityIdentifier sid, LogonType logonType)
-        {
-            NTAccount becomeAccount = (NTAccount)sid.Translate(typeof(NTAccount));
-            string[] userSplit = becomeAccount.Value.Split(new char[1] { '\\' }, 2);
-            string domainName = userSplit[0];
-            string username = userSplit[1];
-            bool domainUser = domainName.ToLowerInvariant() != Environment.MachineName.ToLowerInvariant();
-
-            NativeHelpers.LSA_STRING logonProcessName = "ansible";
-            SafeLsaHandle lsaHandle;
-            IntPtr securityMode;
-            UInt32 res = NativeMethods.LsaRegisterLogonProcess(logonProcessName, out lsaHandle, out securityMode);
-            if (res != 0)
-                throw new Process.Win32Exception((int)NativeMethods.LsaNtStatusToWinError(res), "LsaRegisterLogonProcess() failed");
-
-            using (lsaHandle)
-            {
-                NativeHelpers.LSA_STRING packageName = domainUser ? "Kerberos" : "MICROSOFT_AUTHENTICATION_PACKAGE_V1_0";
-                UInt32 authPackage;
-                res = NativeMethods.LsaLookupAuthenticationPackage(lsaHandle, packageName, out authPackage);
-                if (res != 0)
-                    throw new Process.Win32Exception((int)NativeMethods.LsaNtStatusToWinError(res),
-                        String.Format("LsaLookupAuthenticationPackage({0}) failed", (string)packageName));
-
-                int usernameLength = username.Length * sizeof(char);
-                int domainLength = domainName.Length * sizeof(char);
-                int authInfoLength = (Marshal.SizeOf(typeof(NativeHelpers.KERB_S4U_LOGON)) + usernameLength + domainLength);
-                IntPtr authInfo = Marshal.AllocHGlobal((int)authInfoLength);
-                try
-                {
-                    IntPtr usernamePtr = IntPtr.Add(authInfo, Marshal.SizeOf(typeof(NativeHelpers.KERB_S4U_LOGON)));
-                    IntPtr domainPtr = IntPtr.Add(usernamePtr, usernameLength);
-
-                    // KERB_S4U_LOGON has the same structure as MSV1_0_S4U_LOGON (local accounts)
-                    NativeHelpers.KERB_S4U_LOGON s4uLogon = new NativeHelpers.KERB_S4U_LOGON
-                    {
-                        MessageType = 12,  // KerbS4ULogon
-                        Flags = 0,
-                        ClientUpn = new NativeHelpers.LSA_UNICODE_STRING
-                        {
-                            Length = (UInt16)usernameLength,
-                            MaximumLength = (UInt16)usernameLength,
-                            Buffer = usernamePtr,
-                        },
-                        ClientRealm = new NativeHelpers.LSA_UNICODE_STRING
-                        {
-                            Length = (UInt16)domainLength,
-                            MaximumLength = (UInt16)domainLength,
-                            Buffer = domainPtr,
-                        },
-                    };
-                    Marshal.StructureToPtr(s4uLogon, authInfo, false);
-                    Marshal.Copy(username.ToCharArray(), 0, usernamePtr, username.Length);
-                    Marshal.Copy(domainName.ToCharArray(), 0, domainPtr, domainName.Length);
-
-                    Luid sourceLuid;
-                    if (!NativeMethods.AllocateLocallyUniqueId(out sourceLuid))
-                        throw new Process.Win32Exception("AllocateLocallyUniqueId() failed");
-
-                    NativeHelpers.TOKEN_SOURCE tokenSource = new NativeHelpers.TOKEN_SOURCE
-                    {
-                        SourceName = "ansible\0".ToCharArray(),
-                        SourceIdentifier = sourceLuid,
-                    };
-
-                    // Only Batch or Network will work with S4U, prefer Batch but use Network if asked
-                    LogonType lsaLogonType = logonType == LogonType.Network
-                        ? LogonType.Network
-                        : LogonType.Batch;
-                    SafeLsaMemoryBuffer profileBuffer;
-                    UInt32 profileBufferLength;
-                    Luid logonId;
-                    SafeNativeHandle hToken;
-                    IntPtr quotas;
-                    UInt32 subStatus;
-
-                    res = NativeMethods.LsaLogonUser(lsaHandle, logonProcessName, lsaLogonType, authPackage,
-                        authInfo, (UInt32)authInfoLength, IntPtr.Zero, tokenSource, out profileBuffer, out profileBufferLength,
-                        out logonId, out hToken, out quotas, out subStatus);
-                    if (res != 0)
-                        throw new Process.Win32Exception((int)NativeMethods.LsaNtStatusToWinError(res),
-                            String.Format("LsaLogonUser() failed with substatus {0}", subStatus));
-
-                    profileBuffer.Dispose();
-                    return hToken;
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(authInfo);
-                }
-            }
-        }
-
         private static SafeNativeHandle GetElevatedToken(SafeNativeHandle hToken)
         {
             TokenElevationType tet = TokenUtil.GetTokenElevationType(hToken);
@@ -575,25 +357,6 @@ namespace Ansible.Become
                 return linkedToken;
             else
                 return null;
-        }
-
-        private static NativeHelpers.SECURITY_LOGON_TYPE GetTokenLogonType(SafeNativeHandle hToken)
-        {
-            TokenStatistics stats = TokenUtil.GetTokenStatistics(hToken);
-
-            SafeLsaMemoryBuffer sessionDataPtr;
-            UInt32 res = NativeMethods.LsaGetLogonSessionData(ref stats.AuthenticationId, out sessionDataPtr);
-            if (res != 0)
-                // Default to Network, if we weren't able to get the actual type treat it as an error and assume
-                // we don't want to run a process with the token
-                return NativeHelpers.SECURITY_LOGON_TYPE.Network;
-
-            using (sessionDataPtr)
-            {
-                NativeHelpers.SECURITY_LOGON_SESSION_DATA sessionData = (NativeHelpers.SECURITY_LOGON_SESSION_DATA)Marshal.PtrToStructure(
-                    sessionDataPtr.DangerousGetHandle(), typeof(NativeHelpers.SECURITY_LOGON_SESSION_DATA));
-                return sessionData.LogonType;
-            }
         }
 
         private static void GrantAccessToWindowStationAndDesktop(IdentityReference account)

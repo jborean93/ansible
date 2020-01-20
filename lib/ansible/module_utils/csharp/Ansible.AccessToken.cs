@@ -22,7 +22,15 @@ namespace Ansible.AccessToken
         public struct SID_AND_ATTRIBUTES
         {
             public IntPtr Sid;
-            public int Attributes;
+            public UInt32 Attributes;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TOKEN_GROUPS
+        {
+            public UInt32 GroupCount;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
+            public SID_AND_ATTRIBUTES[] Groups;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -34,6 +42,13 @@ namespace Ansible.AccessToken
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct TOKEN_SOURCE
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)] public char[] SourceName;
+            public Luid SourceIdentifier;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         public struct TOKEN_USER
         {
             public SID_AND_ATTRIBUTES User;
@@ -42,10 +57,13 @@ namespace Ansible.AccessToken
         public enum TokenInformationClass : uint
         {
             TokenUser = 1,
+            TokenGroups = 2,
             TokenPrivileges = 3,
+            TokenSource = 7,
             TokenStatistics = 10,
             TokenElevationType = 18,
             TokenLinkedToken = 19,
+            TokenLogonSid = 28,
         }
     }
 
@@ -131,6 +149,20 @@ namespace Ansible.AccessToken
         }
     }
 
+    public enum GroupAttributes : uint
+    {
+        Disabled = 0x00000000,
+        Mandatory = 0x00000001,
+        EnabledByDefault = 0x00000002,
+        Enabled = 0x00000004,
+        Owner = 0x00000008,
+        UseForDenyOnly = 0x00000010,
+        Integrity = 0x00000020,
+        IntegrityEnabled = 0x00000040,
+        Resource = 0x20000000,
+        LogonId = 0xC0000000,
+    }
+
     public enum LogonProvider
     {
         Default,
@@ -138,13 +170,19 @@ namespace Ansible.AccessToken
 
     public enum LogonType
     {
+        System = 0,  // Special logon type to denote SYSTEM process'
         Interactive = 2,
         Network = 3,
         Batch = 4,
         Service = 5,
+        Proxy = 6,
         Unlock = 7,
         NetworkCleartext = 8,
         NewCredentials = 9,
+        RemoteInteractive = 10,
+        CachedInteractive = 11,
+        CachedRemoteInteractive = 12,
+        CachedUnlock = 13,
     }
 
     [Flags]
@@ -227,6 +265,40 @@ namespace Ansible.AccessToken
         public Luid ModifiedId;
     }
 
+    public class GroupInfo
+    {
+        public SecurityIdentifier Sid;
+        public NTAccount Name
+        {
+            get { return (NTAccount)Sid.Translate(typeof(NTAccount)); }
+            set { Sid = (SecurityIdentifier)value.Translate(typeof(SecurityIdentifier)); }
+        }
+        public GroupAttributes Attributes;
+
+        public GroupInfo() { }
+        internal GroupInfo(NativeHelpers.SID_AND_ATTRIBUTES sa)
+        {
+            Sid = new SecurityIdentifier(sa.Sid);  // TODO: do I need to copy to managed memory
+            Attributes = (GroupAttributes)sa.Attributes;
+        }
+    }
+
+    public class TokenSource
+    {
+        private string name;
+        public string Name
+        {
+            get { return name; }
+            set
+            {
+                if (value.Length < 1 || value.Length > 8)
+                    throw new ArgumentException("TokenSource Name must be 1 to 8 characters long");
+                name = value.PadRight(8, '\0');
+            }
+        }
+        public Luid Id;
+    }
+
     public class PrivilegeInfo
     {
         public string Name;
@@ -288,11 +360,28 @@ namespace Ansible.AccessToken
             }
         }
 
+        public static List<GroupInfo> GetTokenGroups(SafeNativeHandle hToken)
+        {
+            using (SafeMemoryBuffer tokenInfo = GetTokenInformation(hToken,
+                NativeHelpers.TokenInformationClass.TokenGroups))
+            {
+                NativeHelpers.TOKEN_GROUPS tokenGroups = (NativeHelpers.TOKEN_GROUPS)Marshal.PtrToStructure(
+                    tokenInfo.DangerousGetHandle(), typeof(NativeHelpers.TOKEN_GROUPS));
+
+                NativeHelpers.SID_AND_ATTRIBUTES[] sidAttrs =
+                    new NativeHelpers.SID_AND_ATTRIBUTES[tokenGroups.GroupCount];
+                PtrToStructureArray(sidAttrs, IntPtr.Add(tokenInfo.DangerousGetHandle(), IntPtr.Size));
+
+                return sidAttrs.Select(sa => new GroupInfo(sa)).ToList();
+            }
+        }
+
         public static List<PrivilegeInfo> GetTokenPrivileges(SafeNativeHandle hToken)
         {
             using (SafeMemoryBuffer tokenInfo = GetTokenInformation(hToken,
                 NativeHelpers.TokenInformationClass.TokenPrivileges))
             {
+
                 NativeHelpers.TOKEN_PRIVILEGES tokenPrivs = (NativeHelpers.TOKEN_PRIVILEGES)Marshal.PtrToStructure(
                     tokenInfo.DangerousGetHandle(),
                     typeof(NativeHelpers.TOKEN_PRIVILEGES));
@@ -303,6 +392,22 @@ namespace Ansible.AccessToken
                     Marshal.SizeOf(tokenPrivs.PrivilegeCount)));
 
                 return luidAttrs.Select(la => new PrivilegeInfo(la)).ToList();
+            }
+        }
+
+        public static TokenSource GetTokenSource(SafeNativeHandle hToken)
+        {
+            using (SafeMemoryBuffer tokenInfo = GetTokenInformation(hToken,
+                NativeHelpers.TokenInformationClass.TokenSource))
+            {
+                NativeHelpers.TOKEN_SOURCE source = (NativeHelpers.TOKEN_SOURCE)Marshal.PtrToStructure(
+                    tokenInfo.DangerousGetHandle(), typeof(NativeHelpers.TOKEN_SOURCE));
+
+                return new TokenSource()
+                {
+                    Name = source.ToString(),
+                    Id = source.SourceIdentifier,
+                };
             }
         }
 
@@ -333,6 +438,18 @@ namespace Ansible.AccessToken
                 NativeHelpers.TokenInformationClass.TokenLinkedToken))
             {
                 return new SafeNativeHandle(Marshal.ReadIntPtr(tokenInfo.DangerousGetHandle()));
+            }
+        }
+
+        public static GroupInfo GetTokenLogonSid(SafeNativeHandle hToken)
+        {
+            using (SafeMemoryBuffer tokenInfo = GetTokenInformation(hToken,
+                NativeHelpers.TokenInformationClass.TokenLogonSid))
+            {
+                NativeHelpers.TOKEN_GROUPS groups = (NativeHelpers.TOKEN_GROUPS)Marshal.PtrToStructure(
+                    tokenInfo.DangerousGetHandle(), typeof(NativeHelpers.TOKEN_GROUPS));
+
+                return new GroupInfo(groups.Groups[0]);
             }
         }
 
