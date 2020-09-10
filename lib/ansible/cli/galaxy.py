@@ -26,6 +26,7 @@ from ansible.galaxy.collection import (
     CollectionRequirement,
     download_collections,
     find_existing_collections,
+    find_plugin,
     install_collections,
     publish_collection,
     validate_collection_name,
@@ -169,6 +170,10 @@ class GalaxyCLI(CLI):
                                       "to the default COLLECTIONS_PATHS. Separate multiple paths "
                                       "with '{0}'.".format(os.path.pathsep))
 
+        cache_options = opt_help.argparse.ArgumentParser(add_help=False)
+        cache_options.add_argument('--clean-cache', dest='clean_cache', default=False, action='store_true',
+                                   help="Invalid the existing cache and generate a new one")
+
         # Add sub parser for the Galaxy role type (role or collection)
         type_parser = self.parser.add_subparsers(metavar='TYPE', dest='type')
         type_parser.required = True
@@ -184,6 +189,7 @@ class GalaxyCLI(CLI):
         self.add_install_options(collection_parser, parents=[common, force])
         self.add_list_options(collection_parser, parents=[common, collections_path])
         self.add_verify_options(collection_parser, parents=[common, collections_path])
+        self.add_provides_options(collection_parser, parents=[common, cache_options])
 
         # Add sub parser for the Galaxy role actions
         role = type_parser.add_parser('role', help='Manage an Ansible Galaxy role.')
@@ -399,6 +405,20 @@ class GalaxyCLI(CLI):
                                     help="Don't wait for import validation results.")
         publish_parser.add_argument('--import-timeout', dest='import_timeout', type=int, default=0,
                                     help="The time to wait for the collection import process to finish.")
+
+    def add_provides_options(self, parser, parents=None):
+        provides_parser = parser.add_parser('provides', parents=parents,
+                                            help='Searches for a collection that provides the plugin specified. This '
+                                                 'will take a few minutes to build the initial cache on the first run '
+                                                 'or when the cache is invalidated.')
+        provides_parser.set_defaults(func=self.execute_provides)
+
+        provides_parser.add_argument('args', metavar='plugin_name',
+                                     help='The name of the plugin to search for.')
+        provides_parser.add_argument('-t', '--type', action="store", dest='plugin_type', nargs='+',
+                                     default=C.DOCUMENTABLE_PLUGINS,
+                                     choices=C.DOCUMENTABLE_PLUGINS,
+                                     help='Only find the plugin type(s) specified.')
 
     def post_process_args(self, options):
         options = super(GalaxyCLI, self).post_process_args(options)
@@ -1368,6 +1388,13 @@ class GalaxyCLI(CLI):
         timeout = context.CLIARGS['import_timeout']
 
         publish_collection(collection_path, self.api, wait, timeout)
+
+    def execute_provides(self):
+        """
+        Searches for collections on the Ansible Galaxy server that provide the specified plugin.
+        """
+        plugin_list = find_plugin(context.CLIARGS['args'], context.CLIARGS.get('plugin_type'), self.api_servers)
+        return
 
     def execute_search(self):
         ''' searches for roles on the Ansible Galaxy server'''

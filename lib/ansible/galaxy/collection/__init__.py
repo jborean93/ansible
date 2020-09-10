@@ -703,6 +703,10 @@ def install_collections(collections, output_path, apis, validate_certs, ignore_e
                         raise
 
 
+def find_plugin(plugin_name, plugin_types, apis):
+    a = ''
+
+
 def validate_collection_name(name):
     """Validates the collection name as an input from the user or a requirements file fit the requirements.
 
