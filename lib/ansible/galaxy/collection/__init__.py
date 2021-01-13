@@ -276,7 +276,7 @@ def download_collections(
         dep_map = _resolve_depenency_map(
             set(collections),
             galaxy_apis=apis,
-            preferred_requirements=None,
+            preferred_candidates=None,
             concrete_artifacts_manager=artifacts_manager,
             no_deps=no_deps,
             allow_pre_release=allow_pre_release,
@@ -458,17 +458,21 @@ def install_collections(
         if coll.fqcn not in requested_requirements_names
     }
 
-    preferred_collections = (
+    preferred_requirements = (
         [] if force_deps
         else existing_non_requested_collections if force
         else existing_collections
     )
+    preferred_collections = {
+        Candidate(coll.fqcn, coll.ver, coll.src, coll.type)
+        for coll in preferred_requirements
+    }
     with _display_progress("Process install dependency map"):
         try:
             dependency_map = _resolve_depenency_map(
                 collections,
                 galaxy_apis=apis,
-                preferred_requirements=preferred_collections,
+                preferred_candidates=preferred_collections,
                 concrete_artifacts_manager=artifacts_manager,
                 no_deps=no_deps,
                 allow_pre_release=allow_pre_release,
@@ -1232,7 +1236,7 @@ def _resolve_depenency_map(
         requested_requirements,  # type: Iterable[Requirement]
         galaxy_apis,  # type: Iterable[GalaxyAPI]
         concrete_artifacts_manager,  # type: ConcreteArtifactsManager
-        preferred_requirements,  # type: Optional[Iterable[Requirement]]
+        preferred_candidates,  # type: Optional[Iterable[Candidate]]
         no_deps,  # type: bool
         allow_pre_release,  # type: bool
 ):  # type: (...) -> Dict[str, Candidate]
@@ -1240,7 +1244,7 @@ def _resolve_depenency_map(
     collection_dep_resolver = build_collection_dependency_resolver(
         galaxy_apis=galaxy_apis,
         concrete_artifacts_manager=concrete_artifacts_manager,
-        preferred_requirements=preferred_requirements,
+        preferred_candidates=preferred_candidates,
         with_deps=not no_deps,
         with_pre_releases=allow_pre_release,
     )

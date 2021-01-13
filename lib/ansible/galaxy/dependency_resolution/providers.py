@@ -41,7 +41,7 @@ class CollectionDependencyProvider(AbstractProvider):
             self,  # type: CollectionDependencyProvider
             apis,  # type: MultiGalaxyAPIProxy
             concrete_artifacts_manager=None,  # type: ConcreteArtifactsManager
-            preferred_requirements=None,  # type: Iterable[Requirement]
+            preferred_candidates=None,  # type: Iterable[Candidate]
             with_deps=True,  # type: bool
             with_pre_releases=False,  # type: bool
     ):  # type: (...) -> None
@@ -70,7 +70,7 @@ class CollectionDependencyProvider(AbstractProvider):
             Requirement.from_requirement_dict,
             art_mgr=concrete_artifacts_manager,
         )
-        self._preferred_requirements = set(preferred_requirements or ())
+        self._preferred_candidates = set(preferred_candidates or ())
         self._with_deps = with_deps
         self._with_pre_releases = with_pre_releases
 
@@ -121,7 +121,7 @@ class CollectionDependencyProvider(AbstractProvider):
         is called with `reverse=False`).
         """
         if any(
-                candidate in self._preferred_requirements
+                candidate in self._preferred_candidates
                 for candidate in candidates
         ):
             # NOTE: Prefer pre-installed candidates over newer versions
@@ -163,9 +163,8 @@ class CollectionDependencyProvider(AbstractProvider):
             ]
 
         preinstalled_candidates = {
-            Candidate(req.fqcn, req.ver, req.src, req.type)
-            for req in self._preferred_requirements
-            if req.fqcn == fqcn
+            candidate for candidate in self._preferred_candidates
+            if candidate.fqcn == fqcn
         }
 
         assert len(preinstalled_candidates) < 2, (
