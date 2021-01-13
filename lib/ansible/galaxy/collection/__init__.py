@@ -501,7 +501,6 @@ def install_collections(
                 inconsistent_candidate_exc,
             )
 
-
     with _display_progress("Starting collection install process"):
         for fqcn, concrete_coll_pin in dependency_map.items():
             if concrete_coll_pin.is_virtual:
