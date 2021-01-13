@@ -169,11 +169,11 @@ class _ComputedReqKindsMixin:
         b_dir_path = to_bytes(dir_path, errors='surrogate_or_strict')
         if not _is_collection_dir(b_dir_path):
             display.warning(
-                "Collection at '{path!s}' does not have a {manifest_json!s} "
-                'file, nor has it {galaxy_yml!s}: cannot detect version.'.
+                u"Collection at '{path!s}' does not have a {manifest_json!s} "
+                u'file, nor has it {galaxy_yml!s}: cannot detect version.'.
                 format(
-                    galaxy_yml=to_native(_GALAXY_YAML),
-                    manifest_json=to_native(_MANIFEST_JSON),
+                    galaxy_yml=to_text(_GALAXY_YAML),
+                    manifest_json=to_text(_MANIFEST_JSON),
                     path=to_text(dir_path, errors='surrogate_or_strict'),
                 ),
             )

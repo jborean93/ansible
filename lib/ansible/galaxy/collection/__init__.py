@@ -999,7 +999,7 @@ def find_existing_collections(path, artifacts_manager):
                 raise_from(AnsibleError(val_err), val_err)
 
             display.vvv(
-                "Found installed collection {coll!s} at '{path!s}'".
+                u"Found installed collection {coll!s} at '{path!s}'".
                 format(coll=to_text(req), path=to_text(req.src))
             )
             yield req
@@ -1017,7 +1017,7 @@ def install(collection, path, artifacts_manager):  # FIXME: mv to dataclasses?
     collection_path = os.path.join(path, collection.namespace, collection.name)
     b_collection_path = to_bytes(collection_path, errors='surrogate_or_strict')
     display.display(
-        "Installing '{coll!s}' to '{path!s}'".
+        u"Installing '{coll!s}' to '{path!s}'".
         format(coll=to_text(collection), path=collection_path),
     )
 

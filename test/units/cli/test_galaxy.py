@@ -1139,7 +1139,7 @@ def test_parse_requirements_with_extra_info(requirements_cli, requirements_file)
     assert len(actual['collections']) == 2
     assert actual['collections'][0][0] == 'namespace.collection1'
     assert actual['collections'][0][1] == '>=1.0.0,<=2.0.0'
-    assert actual['collections'][0][2] == 'https://galaxy-dev.ansible.com'
+    assert actual['collections'][0][2].api_server == 'https://galaxy-dev.ansible.com'
 
     assert actual['collections'][1] == ('namespace.collection2', '*', None, 'galaxy')
 
@@ -1189,9 +1189,11 @@ def test_parse_requirements_with_collection_source(requirements_cli, requirement
 
     assert actual['collections'][1][0] == 'namespace2.collection2'
     assert actual['collections'][1][1] == '*'
-    assert actual['collections'][1][2] == 'https://galaxy-dev.ansible.com/'
+    assert actual['collections'][1][2].api_server == 'https://galaxy-dev.ansible.com/'
 
-    assert actual['collections'][2] == ('namespace3.collection3', '*', 'server', 'galaxy')
+    assert actual['collections'][2][0] == 'namespace3.collection3'
+    assert actual['collections'][2][1] == '*'
+    assert actual['collections'][2][2].api_server == 'https://config-server'
 
 
 @pytest.mark.parametrize('requirements_file', ['''
