@@ -6,7 +6,6 @@ import shlex
 import typing as t
 
 from ansible.errors import AnsibleError
-from ansible.module_utils._internal import _deprecator
 from ansible.module_utils.common.json import Direction, get_module_encoder
 from ansible.template import Templar
 from ansible.plugins.become import BecomeBase
@@ -46,7 +45,7 @@ class BuildOptions:
     """The current async options is enabled for the current task."""
     task_vars: dict[str, object] = dataclasses.field(default_factory=dict)
     """The task variables for the target host."""
-    environment: dict[str, str]  = dataclasses.field(default_factory=dict)
+    environment: dict[str, str] = dataclasses.field(default_factory=dict)
     """The environment variables set for the current task."""
     templar: Templar | None = None
     """The action plugins templar engine."""
@@ -160,7 +159,7 @@ class ModuleBuilder:
             )
         )
 
-        module_args = []
+        module_args: list[str] = []
         if self.argument_style != "embedded":
             if self.argument_style == "key=value":
                 arg_lines = []
@@ -173,7 +172,7 @@ class ModuleBuilder:
                 arg_data = json.dumps(module_args, cls=profile_encoder)
 
             args_file_path = options.shell.join_path(tmpdir, "args")
-            temp_files.append(TempFile(remote_path=args_file_path, data=arg_data))
+            temp_files.append(TempFile(remote_path=args_file_path, data=arg_data.encode("utf-8")))
             module_args.append(args_file_path)
 
         cmd_args = self._get_interpreter_args(
@@ -195,7 +194,7 @@ class ModuleBuilder:
         rc: int,
         stdout: bytes,
         stderr: bytes,
-    ) -> tuple[int, bytes, bytes, int]:
+    ) -> tuple[int, bytes, bytes]:
         """Process the raw result from executing the module."""
         return (rc, stdout, stderr)
 
@@ -211,11 +210,14 @@ class ModuleBuilder:
             if self.shebang[1]:
                 # We've historically failed ungracefully if a module shebang
                 # has an arg present. Instead we ignore it and emit a warning.
+                msg = (
+                    f"The module shebang at {self.path!r} contains an argument and will be ignored. "
+                    "This will turn into an error after the deprecation period."
+                )
                 display.deprecated(
-                    msg=f"The module shebang at {self.path!r} contains an argument and will be ignored. This will turn into an error after the deprecation period.",
+                    msg=msg,
                     version='2.24',
-                    deprecator=_deprecator.ANSIBLE_CORE_DEPRECATOR,
-                    help_test='Remove shebang argument from the shebang line.'
+                    help_text='Remove shebang argument from the shebang line.',
                 )
 
         if path:

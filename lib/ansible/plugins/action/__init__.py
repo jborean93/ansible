@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import collections.abc
 import contextlib
 import dataclasses
 import itertools
@@ -156,7 +157,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
         name is provided, the current task action name is used instead. The
         module args and task vars default to the current task args and vars
         respectively but can be overridden with explicit values if desired.
-        
+
         The async settings are based on the current task's async value but can
         be overridden by the async_timeout. Set to `None` (default) to inherit
         the task's async value, `0` to disable async, or any other number to
@@ -288,7 +289,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
         self,
         module_name: str,
         module_args: dict[str, object],
-        task_vars: dict[str, object],
+        task_vars: dict[str, t.Any],
         async_dir: str | None = None,
         async_timeout: int = 0,
         environment: dict[str, str] | None = None,
@@ -398,7 +399,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
         self,
         interpreter_name: str,
         discovery_mode: str,
-        task_vars: dict[str, object],
+        task_vars: dict[str, t.Any],
     ) -> dict[str, str]:
         if self._task.delegate_to:
             use_vars = task_vars.get('ansible_delegated_vars')[self._task.delegate_to]
@@ -1088,7 +1089,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
     def _execute_module(
         self,
         module_name: str | None = None,
-        module_args: dict[str, str] | None = None,
+        module_args: dict[str, object] | None = None,
         tmp: None = None,
         task_vars: dict[str, object] | None = None,
         persist_files: bool = False,
@@ -1099,7 +1100,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
     ):
         """
         Transfer and run a module along with its arguments.
-        
+
         While this func is marked as internal with the _ prefix, it was the only way to
         execute a module for much of Ansible's past and is kept here for backwards
         compatibility. Callers should use :func:`execute_module` instead.
@@ -1169,7 +1170,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
             # target to handle but this is how it has always been. In the
             # future we should look at abstracting this out to an exec
             # subsystem like plugin.
-            _, async_info, async_interpreter_facts = self._configure_module(
+            dummy, async_info, async_interpreter_facts = self._configure_module(
                 module_name='ansible.legacy.async_wrapper',
                 module_args=dict(),
                 task_vars=task_vars,
@@ -1331,7 +1332,16 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
         return data
 
     # FIXME: move to connection base
-    def _low_level_execute_command(self, cmd, sudoable=True, in_data=None, executable=None, encoding_errors='surrogate_then_replace', chdir=None, result_processor=None):
+    def _low_level_execute_command(
+        self,
+        cmd: str,
+        sudoable: bool = True,
+        in_data: bytes | None = None,
+        executable: str | None = None,
+        encoding_errors: str = 'surrogate_then_replace',
+        chdir: str | None = None,
+        result_processor: collections.abc.Callable[[int, bytes, bytes], tuple[int, bytes, bytes]] | None = None,
+    ) -> dict[str, object]:
         """
         This is the function which executes the low level shell command, which
         may be commands to create/remove directories for temporary files, or to

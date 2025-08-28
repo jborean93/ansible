@@ -48,7 +48,7 @@ from ansible.parsing.splitter import parse_kv
 from ansible.plugins.loader import init_plugin_loader
 from ansible.plugins.shell.sh import ShellModule as ShShellPlugin
 import ansible.constants as C
-from ansible.module_utils.common.text.converters import to_native, to_text
+from ansible.module_utils.common.text.converters import to_text
 from ansible.template import Templar
 
 import json
@@ -133,14 +133,7 @@ def get_interpreters(interpreter):
 def build_module(modfile, args, interpreters, check, destfile):
     """ simulate what ansible does with new style modules """
 
-    # module_fh = open(modfile)
-    # module_data = module_fh.read()
-    # module_fh.close()
-
-    # replacer = module_common.ModuleReplacer()
     loader = DataLoader()
-
-    # included_boilerplate = module_data.find(module_common.REPLACER) != -1 or module_data.find("import ansible.module_utils") != -1
 
     complex_args = {}
 

@@ -20,27 +20,22 @@ from __future__ import annotations
 
 import os
 import re
-from importlib import import_module
 
 
-import builtins
 import pytest
 import shlex
 import unittest
 
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleAuthenticationFailure
-from ansible._internal._module._builder import BuiltModule
-from ansible.module_utils.common.text.converters import to_bytes
 from ansible._internal._datatag._tags import TrustedAsTemplate
 from ansible.playbook.play_context import PlayContext
 from ansible.plugins.action import ActionBase
 from ansible.plugins.shell import _ShellCommand
 from ansible.vars.clean import clean_facts
 from ansible.template import Templar
-from ansible.plugins import loader
 
 from units.mock.loader import DictDataLoader
 

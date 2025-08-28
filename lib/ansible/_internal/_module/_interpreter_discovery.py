@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os.path
 import re
-import typing as t
 
 from ansible._internal._datatag import _utils
 from ansible._internal._templating._engine import TemplateOptions
@@ -101,7 +100,7 @@ def replace_shebang(
 ) -> str | None:
     """
     Handles the different ways ansible allows overriding the shebang target for a module.
-    
+
     :param interpreter: The current shebang interpreter path.
     :param task_vars: The current host's task vars.
     :param templar: The templar to use for templating user provided values.
@@ -122,7 +121,7 @@ def replace_shebang(
         interpreter_out = override
 
     elif C.config.get_configuration_definition(interpreter_config_key):
-        interpreter_from_config = C.config.get_config_value(interpreter_config_key, variables=task_vars)
+        interpreter_from_config = str(C.config.get_config_value(interpreter_config_key, variables=task_vars))
         interpreter_out = templar._engine.template(
             _utils.str_problematic_strip(interpreter_from_config),
             options=TemplateOptions(value_for_omit=C.config.get_config_default(interpreter_config_key)),
@@ -134,16 +133,16 @@ def replace_shebang(
             discovered_interpreter_config = f'discovered_interpreter_{interpreter_name}'
             facts_from_task_vars = task_vars.get('ansible_facts', {})
 
-            if discovered_interpreter_config not in facts_from_task_vars:
+            if discovered_interpreter := facts_from_task_vars.get(discovered_interpreter_config):
+                interpreter_out = str(discovered_interpreter)
+            else:
                 # interpreter discovery is desired, but has not been run for this host
                 raise InterpreterDiscoveryRequiredError("interpreter discovery needed", interpreter_name=interpreter_name, discovery_mode=interpreter_out)
-            else:
-                interpreter_out = facts_from_task_vars[discovered_interpreter_config]
 
     elif interpreter_var in task_vars:
         # If a config option does not exist, check the vars for a direct override.
         interpreter_out = templar._engine.template(
-            _utils.str_problematic_strip(task_vars.get(interpreter_var)),
+            _utils.str_problematic_strip(str(task_vars.get(interpreter_var))),
             options=TemplateOptions(value_for_omit=None),
         )
 
@@ -155,3 +154,5 @@ def replace_shebang(
         # Only return the shebang if the interpreter doesn't match the original shebang
         # interpreter. This allows the caller to update the content only if needed.
         return interpreter_out
+
+    return None

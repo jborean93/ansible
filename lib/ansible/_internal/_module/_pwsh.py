@@ -8,8 +8,7 @@ import xml.etree.ElementTree as ET
 
 from . import _builder
 from ansible.executor.powershell import module_manifest
-from ansible.plugins.become import BecomeBase
-from ansible.plugins.shell import powershell, ShellBase
+from ansible.plugins.shell import powershell
 
 
 REPLACER_PWSH = b"# POWERSHELL_COMMON"
@@ -29,21 +28,21 @@ _STRING_SERIAL_ESCAPE_ESCAPE = re.compile("(?i)_(x)")
 
 # Finds C0, C1, and surrogate pairs in a unicode string for us to encode
 # according to the PSRP rules.
-_STRING_SERIAL_ESCAPE = re.compile("[\u0000-\u001F\u007F-\u009F\uD800-\uD8FF\uDC00-\uDFFF\U00010000-\U0010FFFF]")
+_STRING_SERIAL_ESCAPE = re.compile("[\u0000-\u001f\u007f-\u009f\ud800-\ud8ff\udc00-\udfff\U00010000-\U0010ffff]")
 
 
 class PwshModuleBuilder(_builder.ModuleBuilder):
     """PowerShell module builder.
-    
+
     The PowerShell builder is flagged when the module contains either the old
     replacer '# POWERSHELL_COMMON' text or one of the new requires statements.
-    
+
     :param module_fqn: The module's fully qualified name.
     :param path: The path to the PowerShell module.
     :param data: The module's contents.
     :param shebang: The shebang interpreter and optional argument if present.
     :param is_windows: Whether the target platform is Windows or not.
-    :param substyle: Whether the builder is for a module or script.
+    :param substyle: Whether the builder is for PowerShell code or a script.
     :param chdir: The working directory to change to before executing the module or script.
     """
 
@@ -54,7 +53,7 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
         data: bytes,
         shebang: tuple[str, str | None] | None = None,
         is_windows: bool = True,
-        substyle: t.Literal["module", "script"] = "module",
+        substyle: t.Literal["powershell", "script"] = "powershell",
         chdir: str | None = None,
     ) -> None:
         # For backwards compat treat no shebang as '#!powershell'
@@ -117,40 +116,8 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
             path=path,
             data=module_data,
             shebang=shebang,
-            is_windows=platform=="windows",
+            is_windows=platform == "windows",
         )
-
-    @classmethod
-    def create_script_payload(
-        cls,
-        name: str,
-        path: str,
-        script_cmd: str,
-        environment: dict[str, str],
-        chdir: str | None,
-        shell: ShellBase,
-        become: BecomeBase | None,
-        task_vars: dict[str, object],
-    ) -> tuple[str, bytes]:
-        builder = PwshModuleBuilder(
-            module_fqn=f"ansible.builtin.script.{name}",
-            path=path,
-            data=script_cmd.encode('utf-8'),
-            is_windows=True,
-            substyle='script',
-        )
-
-        options = _builder.BuildOptions(
-            module_args=dict(),
-            shell=shell,
-            tmpdir=None,
-            become=become,
-            task_vars=task_vars,
-            environment=environment,
-        )
-        module = builder.build_module(options)
-
-        return shell.join(module.cmd), module.in_data or b""
 
     def update_shebang(self, shebang: str) -> None:
         # If the shebang is being updated then we don't want to use the default
@@ -163,23 +130,16 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
     def build_module(self, options: _builder.BuildOptions) -> _builder.BuiltModule:
         # FUTURE: Add a way for pwsh modules to set this.
         serialization_profile = "legacy"
+        build_has_async = True
+        build_environment = {}
 
         cmd_args = self._get_pwsh_args()
-        build_kwargs = {
-            'serialization_profile': serialization_profile,
-        }
 
         # The async, become, and environment handlers in the pwsh wrapper is
         # only done on Windows. POSIX uses a mechanism done outside of the
         # wrapper instead.
-        wrapper_kwargs = {
-            'async_timeout': 0,
-            'async_dir': None,
-        }
+        wrapper_kwargs: dict[str, t.Any] = {'async_timeout': 0, 'async_dir': None, 'become_plugin': None, 'environment': {}}
         if self._is_windows:
-            build_kwargs['has_async'] = True
-            build_kwargs['environment'] = {}
-
             wrapper_kwargs['environment'] = options.environment
             wrapper_kwargs['become_plugin'] = options.become
 
@@ -187,11 +147,8 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
                 wrapper_kwargs['async_timeout'] = options.async_opts.timeout
                 wrapper_kwargs['async_dir'] = options.async_opts.path
         else:
-            build_kwargs['has_async'] = False
-            build_kwargs['environment'] = options.environment
-
-            wrapper_kwargs['environment'] = {}
-            wrapper_kwargs['become_plugin'] = None
+            build_has_async = False
+            build_environment = options.environment
 
             if options.async_opts and not options.tmpdir:
                 raise _builder.RequiresTmpDir()
@@ -208,11 +165,13 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
             **wrapper_kwargs,
         )
 
+        in_data = module_data
+        temp_files = []
         if options.tmpdir:
             # For non-pipelining we execute the bootstrap wrapper as an encoded
             # command still but provide the input/module data as the path to a
             # temp file.
-            temp_files = []
+            in_data = None
             remote_file_path = options.shell.join_path(options.tmpdir, "args")
             temp_files.append(
                 _builder.TempFile(
@@ -226,26 +185,21 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
             enc_args = self._get_encoded_arguments(remote_file_path)
             cmd_args.extend(["-EncodedArguments", enc_args])
 
-            return _builder.BuiltModule(
-                cmd=cmd_args,
-                in_data=None,
-                temp_files=temp_files,
-                **build_kwargs,
-            )
-        else:
-            return _builder.BuiltModule(
-                cmd=cmd_args,
-                in_data=module_data,
-                temp_files=[],
-                **build_kwargs,
-            )
+        return _builder.BuiltModule(
+            cmd=cmd_args,
+            in_data=in_data,
+            temp_files=temp_files,
+            environment=build_environment,
+            has_async=build_has_async,
+            serialization_profile=serialization_profile,
+        )
 
     def process_result(
         self,
         rc: int,
         stdout: bytes,
         stderr: bytes,
-    ) -> tuple[int, bytes, bytes, int]:
+    ) -> tuple[int, bytes, bytes]:
         # PowerShell emits CLIXML over stderr which makes understanding errors
         # difficult. We convert the stderr back to normal text here if possible.
         return (rc, stdout, powershell._replace_stderr_clixml(stderr))
@@ -281,6 +235,7 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
 
     def _get_encoded_arguments(self, *args: str) -> str:
         """Converts a list of arguments to the format needed for -EncodedArguments."""
+
         def rplcr(matchobj: object) -> str:
             surrogate_char = matchobj.group(0)
             byte_char = surrogate_char.encode("utf-16-be", errors="surrogatepass")

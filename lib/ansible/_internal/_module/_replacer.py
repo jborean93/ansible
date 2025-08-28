@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from . import _builder
+from ansible import constants as C
 from ansible.module_utils.common.json import Direction, get_module_encoder
 from ansible.release import __version__
 
@@ -14,7 +15,7 @@ REPLACER_SELINUX = b"<<SELINUX_SPECIAL_FILESYSTEMS>>"
 
 class ReplacerModuleData(_builder.ModuleBuilder):
     """Module replacer builder.
-    
+
     The module replacer  is a simple builder that replaces known identifiers
     in the module code with data like module args. The replacer builder can
     also pipeline a module if the connection supports it.
@@ -57,16 +58,12 @@ class ReplacerModuleData(_builder.ModuleBuilder):
             REPLACER_COMPLEX,
             repr(module_args_json).encode('utf-8'),
         )
-        module_data = module_data.replace(
-            REPLACER_SELINUX,
-            ','.join(C.DEFAULT_SELINUX_SPECIAL_FS).encode('utf-8'))  # type: ignore[attr-defined]
+        module_data = module_data.replace(REPLACER_SELINUX, ','.join(C.DEFAULT_SELINUX_SPECIAL_FS).encode('utf-8'))  # type: ignore[attr-defined]
 
         # The main event -- substitute the JSON args string into the module
         module_data = module_data.replace(REPLACER_JSON_ARGS, module_args_json)
 
-        syslog_facility = options.task_vars.get(
-            'ansible_syslog_facility',
-            C.DEFAULT_SYSLOG_FACILITY)  # type: ignore[attr-defined]
+        syslog_facility = options.task_vars.get('ansible_syslog_facility', C.DEFAULT_SYSLOG_FACILITY)  # type: ignore[attr-defined]
         facility = f'syslog.{syslog_facility}'.encode('utf-8')
         module_data = module_data.replace(b'syslog.LOG_USER', facility)
 

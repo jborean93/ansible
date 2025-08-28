@@ -19,11 +19,7 @@ def get_action_arg_defaults(action: str, task: Task, templar: TemplateEngine) ->
 
     # Get the list of groups that contain this action
     if action_groups is None:
-        msg = (
-            "Finding module_defaults for action %s. "
-            "The caller has not passed the action_groups, so any "
-            "that may include this action will be ignored."
-        )
+        msg = "Finding module_defaults for action %s. The caller has not passed the action_groups, so any that may include this action will be ignored."
         display.warning(msg=msg)
         group_names = []
     else:

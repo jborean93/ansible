@@ -65,7 +65,7 @@ def setup_collection_loader():
 setup_collection_loader()
 
 from ansible import __version__ as ansible_version
-from ansible.executor.module_common import REPLACER_WINDOWS as _REPLACER_WINDOWS, NEW_STYLE_PYTHON_MODULE_RE
+from ansible._internal._module import _python, _pwsh
 from ansible.module_utils.common.collections import is_iterable
 from ansible.module_utils.common.parameters import DEFAULT_TYPE_VALIDATORS
 from ansible.module_utils.compat.version import StrictVersion, LooseVersion
@@ -88,9 +88,8 @@ from .utils import CaptureStd, NoArgsAnsibleModule, compare_unordered_lists, par
 
 # Because there is no ast.TryExcept in Python 3 ast module
 TRY_EXCEPT = ast.Try
-# REPLACER_WINDOWS from ansible.executor.module_common is byte
-# string but we need unicode for Python 3
-REPLACER_WINDOWS = _REPLACER_WINDOWS.decode('utf-8')
+# REPLACER_PWSH is bytes but we need str
+REPLACER_PWSH = _pwsh.REPLACER_PWSH.decode('utf-8')
 
 REJECTLIST_DIRS = frozenset(('.git', 'test', '.github', '.idea'))
 INDENT_REGEX = re.compile(r'([\t]*)')
@@ -427,7 +426,7 @@ class ModuleValidator(Validator):
             missing_python_interpreter = False
 
             if not self.text.startswith('#!/usr/bin/python'):
-                if NEW_STYLE_PYTHON_MODULE_RE.search(to_bytes(self.text)):
+                if _python.NEW_STYLE_PYTHON_MODULE_RE.search(to_bytes(self.text)):
                     missing_python_interpreter = self.text.startswith('#!')  # shebang optional, but if present must match
                 else:
                     missing_python_interpreter = True  # shebang required
@@ -761,7 +760,7 @@ class ModuleValidator(Validator):
                 )
 
         # also accept the legacy #POWERSHELL_COMMON replacer signal
-        if not found_requires and REPLACER_WINDOWS not in self.text:
+        if not found_requires and REPLACER_PWSH not in self.text:
             self.reporter.error(
                 path=self.object_path,
                 code='missing-module-utils-import-csharp-requirements',

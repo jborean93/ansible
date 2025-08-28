@@ -10,6 +10,7 @@ import typing as t
 from ansible import constants as C
 from ansible._internal import _arg_defaults
 from ansible.errors import AnsibleActionFail
+from ansible.module_utils.common.text.converters import to_text
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.plugins.action import ActionBase
 from ansible.utils.vars import merge_hash
@@ -155,7 +156,8 @@ class ActionModule(ActionBase):
 
             while jobs:
                 for module in jobs:
-                    poll_args = {'jid': jobs[module]['ansible_job_id'], '_async_dir': os.path.dirname(jobs[module]['results_file'])}
+                    async_dir = to_text(jobs[module]['results_file'])
+                    poll_args = {'jid': jobs[module]['ansible_job_id'], '_async_dir': os.path.dirname(async_dir)}
                     res = self.execute_module(module_name='ansible.legacy.async_status', module_args=poll_args, task_vars=task_vars, async_timeout=0)
                     if res.get('finished', False):
                         if res.get('failed', False):
@@ -182,7 +184,7 @@ class ActionModule(ActionBase):
 
             result.update(_error_utils.result_dict_from_captured_errors(
                 msg=f"The following modules failed to execute: {', '.join(failed.keys())}.",
-                errors=[r['exception'] for r in failed.values()],
+                errors=[r['exception'] for r in failed.values()],  # type: ignore[misc] # exception is an ErrorSummary but we can't type annotate that
             ))
 
         # tell executor facts were gathered

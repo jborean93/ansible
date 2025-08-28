@@ -67,6 +67,7 @@ _SHEBANG_PLACEHOLDER = '# shebang placeholder'
 @dataclasses.dataclass(frozen=True, order=True)
 class _ModuleUtilsProcessEntry:
     """Represents a module/module_utils item awaiting import analysis."""
+
     name_parts: tuple[str, ...]
     is_ambiguous: bool = False
     child_is_redirected: bool = False
@@ -184,8 +185,7 @@ class ModuleDepFinder(ast.NodeVisitor):
         or ansible.collections
         """
         for alias in node.names:
-            if (alias.name.startswith('ansible.module_utils.') or
-                    alias.name.startswith('ansible_collections.')):
+            if alias.name.startswith('ansible.module_utils.') or alias.name.startswith('ansible_collections.'):
                 py_mod = tuple(alias.name.split('.'))
                 self.submodules.add(py_mod)
                 # if the import's parent is the root document, it's a required import, otherwise it's optional
@@ -305,8 +305,9 @@ class ModuleUtilLocatorBase:
         except ValueError as ve:  # collection not found or some other error related to collection load
             if self._is_optional:
                 return False
-            raise AnsibleError('error processing module_util {0} loading redirected collection {1}: {2}'
-                               .format('.'.join(name_parts), self._collection_name, str(ve)))
+            raise AnsibleError(
+                'error processing module_util {0} loading redirected collection {1}: {2}'.format('.'.join(name_parts), self._collection_name, str(ve))
+            )
 
         routing_entry = _nested_dict_get(collection_metadata, ['plugin_routing', 'module_utils', '.'.join(module_utils_relative_parts)])
         if not routing_entry:
@@ -349,9 +350,7 @@ class ModuleUtilLocatorBase:
                     raise Exception('invalid redirect for {0}: {1}'.format(source_pkg, redirect_target_pkg))
                 # assume it's an FQCN, expand it
                 redirect_target_pkg = 'ansible_collections.{0}.{1}.plugins.module_utils.{2}'.format(
-                    split_fqcn[0],  # ns
-                    split_fqcn[1],  # coll
-                    '.'.join(split_fqcn[2:])  # sub-module_utils remainder
+                    split_fqcn[0], split_fqcn[1], '.'.join(split_fqcn[2:])  # ns  # coll  # sub-module_utils remainder
                 )
             display.vvv('redirecting module_util {0} to {1}'.format(source_pkg, redirect_target_pkg))
             self.source_code = self._generate_redirect_shim_source(source_pkg, redirect_target_pkg)
@@ -401,7 +400,9 @@ import sys
 import {1} as mod
 
 sys.modules['{0}'] = mod
-""".format(fq_source_module, fq_target_module)
+""".format(
+            fq_source_module, fq_target_module
+        )
 
         # FIXME: add __repr__ impl
 
@@ -433,8 +434,7 @@ class LegacyModuleUtilLocator(ModuleUtilLocatorBase):
         if len(rel_name_parts) == 1:  # direct child of module_utils, just search the top-level dirs we were given
             paths = self._mu_paths
         else:  # a nested submodule of module_utils, extend the paths given with the intermediate package names
-            paths = [os.path.join(p, *rel_name_parts[:-1]) for p in
-                     self._mu_paths]  # extend the MU paths with the relative bit
+            paths = [os.path.join(p, *rel_name_parts[:-1]) for p in self._mu_paths]  # extend the MU paths with the relative bit
 
         # find_spec needs the full module name
         self._info = info = importlib.machinery.PathFinder.find_spec('.'.join(name_parts), paths)
@@ -455,8 +455,9 @@ class CollectionModuleUtilLocator(ModuleUtilLocatorBase):
         if fq_name_parts[0] != 'ansible_collections':
             raise Exception('CollectionModuleUtilLocator can only locate from ansible_collections, got {0}'.format(fq_name_parts))
         elif len(fq_name_parts) >= 6 and fq_name_parts[3:5] != ('plugins', 'module_utils'):
-            raise Exception('CollectionModuleUtilLocator can only locate below ansible_collections.(ns).(coll).plugins.module_utils, got {0}'
-                            .format(fq_name_parts))
+            raise Exception(
+                'CollectionModuleUtilLocator can only locate below ansible_collections.(ns).(coll).plugins.module_utils, got {0}'.format(fq_name_parts)
+            )
 
         self._collection_name = '.'.join(fq_name_parts[1:3])
 
@@ -634,13 +635,11 @@ def _recursive_finder(
         ('ansible',): (
             b'from pkgutil import extend_path\n'
             b'__path__=extend_path(__path__,__name__)\n'
-            b'__version__="' + __version__.encode() +
-            b'"\n__author__="' + __author__.encode() + b'"\n',
-            'ansible/__init__.py'),
-        ('ansible', 'module_utils'): (
-            b'from pkgutil import extend_path\n'
-            b'__path__=extend_path(__path__,__name__)\n',
-            'ansible/module_utils/__init__.py')}
+            b'__version__="' + __version__.encode() + b'"\n__author__="' + __author__.encode() + b'"\n',
+            'ansible/__init__.py',
+        ),
+        ('ansible', 'module_utils'): (b'from pkgutil import extend_path\n__path__=extend_path(__path__,__name__)\n', 'ansible/module_utils/__init__.py'),
+    }
 
     module_utils_paths = [p for p in module_utils_loader._get_paths(subdirs=False) if os.path.isdir(p)]
     module_utils_paths.append(_MODULE_UTILS_PATH)
@@ -659,12 +658,14 @@ def _recursive_finder(
     modules_to_process = [_ModuleUtilsProcessEntry(m, True, False, is_optional=m in finder.optional_imports) for m in finder.submodules]
 
     # include module_utils that are always required
-    modules_to_process.extend((
-        _ModuleUtilsProcessEntry.from_module(_loader),
-        _ModuleUtilsProcessEntry.from_module(_basic),
-        _ModuleUtilsProcessEntry.from_module_name(_json.get_module_serialization_profile_module_name(profile, True)),
-        _ModuleUtilsProcessEntry.from_module_name(_json.get_module_serialization_profile_module_name(profile, False)),
-    ))
+    modules_to_process.extend(
+        (
+            _ModuleUtilsProcessEntry.from_module(_loader),
+            _ModuleUtilsProcessEntry.from_module(_basic),
+            _ModuleUtilsProcessEntry.from_module_name(_json.get_module_serialization_profile_module_name(profile, True)),
+            _ModuleUtilsProcessEntry.from_module_name(_json.get_module_serialization_profile_module_name(profile, False)),
+        )
+    )
 
     modules_to_process.extend(_ModuleUtilsProcessEntry.from_module_name(name) for name in extension_manager.module_names)
 
@@ -680,15 +681,16 @@ def _recursive_finder(
             continue
 
         if entry.name_parts[0:2] == ('ansible', 'module_utils'):
-            module_info = LegacyModuleUtilLocator(entry.name_parts, is_ambiguous=entry.is_ambiguous,
-                                                  mu_paths=module_utils_paths, child_is_redirected=entry.child_is_redirected)
+            module_info = LegacyModuleUtilLocator(
+                entry.name_parts, is_ambiguous=entry.is_ambiguous, mu_paths=module_utils_paths, child_is_redirected=entry.child_is_redirected
+            )
         elif entry.name_parts[0] == 'ansible_collections':
-            module_info = CollectionModuleUtilLocator(entry.name_parts, is_ambiguous=entry.is_ambiguous,
-                                                      child_is_redirected=entry.child_is_redirected, is_optional=entry.is_optional)
+            module_info = CollectionModuleUtilLocator(
+                entry.name_parts, is_ambiguous=entry.is_ambiguous, child_is_redirected=entry.child_is_redirected, is_optional=entry.is_optional
+            )
         else:
             # FIXME: dot-joined result
-            display.warning('ModuleDepFinder improperly found a non-module_utils import %s'
-                            % [entry.name_parts])
+            display.warning('ModuleDepFinder improperly found a non-module_utils import %s' % [entry.name_parts])
             continue
 
         # Could not find the module.  Construct a helpful error message.
@@ -707,8 +709,9 @@ def _recursive_finder(
 
         tree = _compile_module_ast('.'.join(module_info.fq_name_parts), module_info.source_code)
         finder = ModuleDepFinder('.'.join(module_info.fq_name_parts), tree, module_info.is_package)
-        modules_to_process.extend(_ModuleUtilsProcessEntry(m, True, False, is_optional=m in finder.optional_imports)
-                                  for m in finder.submodules if m not in py_module_cache)
+        modules_to_process.extend(
+            _ModuleUtilsProcessEntry(m, True, False, is_optional=m in finder.optional_imports) for m in finder.submodules if m not in py_module_cache
+        )
 
         # we've processed this item, add it to the output list
         py_module_cache[module_info.fq_name_parts] = (module_info.source_code, module_info.output_path)
@@ -759,10 +762,7 @@ def _add_module_to_zip(
 
     # Write the module
     zip_module_path = '/'.join(module_path_parts) + '.py'
-    zf.writestr(
-        _make_zinfo(zip_module_path, date_time, zf=zf),
-        b_module_data
-    )
+    zf.writestr(_make_zinfo(zip_module_path, date_time, zf=zf), b_module_data)
 
     if extension_manager.debugger_enabled:
         extension_manager.source_mapping[module_path] = zip_module_path
@@ -786,10 +786,7 @@ def _add_module_to_zip(
             continue
         # Note: We don't want to include more than one ansible module in a payload at this time
         # so no need to fill the __init__.py with namespace code
-        zf.writestr(
-            _make_zinfo(package_path, date_time, zf=zf),
-            b''
-        )
+        zf.writestr(_make_zinfo(package_path, date_time, zf=zf), b'')
 
 
 @dataclasses.dataclass(kw_only=True, slots=True, frozen=True)
@@ -819,7 +816,7 @@ class _CachedModule:
 
 class PythonModuleBuilder(_builder.ModuleBuilder):
     """Python module builder.
-    
+
     The Python builder is flagged when the module contains Python import
     references to the builtin Ansible module utils.
 
@@ -958,8 +955,9 @@ class PythonModuleBuilder(_builder.ModuleBuilder):
                 try:
                     cached_module = _CachedModule.load(cached_module_filename)
                 except OSError as ex:
-                    raise AnsibleError('A different worker process failed to create module file. '
-                                       'Look at traceback for that process for debugging information.') from ex
+                    raise AnsibleError(
+                        'A different worker process failed to create module file. Look at traceback for that process for debugging information.'
+                    ) from ex
 
         # FUTURE: the module cache entry should be invalidated if we got this value from a host-dependent source
         rlimit_nofile = C.config.get_config_value('PYTHON_MODULE_RLIMIT_NOFILE', variables=options.task_vars)
@@ -970,7 +968,9 @@ class PythonModuleBuilder(_builder.ModuleBuilder):
         if not isinstance(cached_module.metadata, ModuleMetadataV1):
             raise NotImplementedError()
 
-        params = dict(ANSIBLE_MODULE_ARGS=options.module_args,)
+        params = dict(
+            ANSIBLE_MODULE_ARGS=options.module_args,
+        )
         encoder = get_module_encoder(cached_module.metadata.serialization_profile, Direction.CONTROLLER_TO_MODULE)
 
         try:
@@ -1002,7 +1002,9 @@ if __name__ == "__main__":
     _ansiballz_main(
 {args_string}
 )
-""".encode('utf-8')
+""".encode(
+            'utf-8'
+        )
         self._data_is_modified = True
 
         if options.tmpdir:

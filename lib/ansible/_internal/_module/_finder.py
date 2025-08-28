@@ -10,12 +10,8 @@ from . import _builder, _python, _pwsh, _replacer
 # Do this instead of getting site-packages from distutils.sysconfig so we work when we
 # haven't been installed
 _site_packages = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-_CORE_LIBRARY_PATH_RE = re.compile(
-    r'%s/(?P<path>ansible/modules/.*)\.(py|ps1)$' % re.escape(_site_packages)
-)
-_COLLECTION_PATH_RE = re.compile(
-    r'/(?P<path>ansible_collections/[^/]+/[^/]+/plugins/modules/.*)\.(py|ps1)$'
-)
+_CORE_LIBRARY_PATH_RE = re.compile(r'%s/(?P<path>ansible/modules/.*)\.(py|ps1)$' % re.escape(_site_packages))
+_COLLECTION_PATH_RE = re.compile(r'/(?P<path>ansible_collections/[^/]+/[^/]+/plugins/modules/.*)\.(py|ps1)$')
 
 
 def get_module_data(
@@ -25,7 +21,7 @@ def get_module_data(
     platform: t.Literal["posix", "windows"] = "posix",
 ) -> _builder.ModuleBuilder:
     """Extracts the module's metadata for execution.
-    
+
     Extracts the metadata used by Ansible for determining how the module is to
     be executed. This gives the action plugin the required information to setup
     the needed environment and perform actions like interpreter discovery or
@@ -34,7 +30,7 @@ def get_module_data(
     :param name: The name of the module from the task action.
     :param path: The path to the module file.
     :param platform: The platform the module is being executed on.
-    :returns: The module metadata. 
+    :returns: The module metadata.
     """
     with open(path, 'rb') as f:
         # Avoiding reading the whole file until we've determined that it isn't
@@ -59,7 +55,7 @@ def get_module_data(
 
     shebang = _extract_interpreter(module_data)
 
-    create_kwargs = {
+    create_kwargs: dict[str, t.Any] = {
         'path': path,
         'module_data': module_data,
         'shebang': shebang,
@@ -89,7 +85,7 @@ def _extract_interpreter(module_data: bytes) -> tuple[str, str | None] | None:
     """
     Used to extract shebang expression from binary module data and return a text
     string with the shebang interpreter, or None if no shebang is detected.
-    
+
     :param module_data: The module contents.
     :returns: A tuple of the shebang interpreter and any remaining values if present.
     """
@@ -113,9 +109,9 @@ def _extract_interpreter(module_data: bytes) -> tuple[str, str | None] | None:
 
 def _get_ansible_module_fqn(path: str) -> str:
     """Get the fully qualifie name for a module.
-    
+
     Gets the fully qualified name for the module at the path provided.
-    
+
     :param path: The path to the module file.
     :returns: The module's fully qualified name.
     """
@@ -134,6 +130,6 @@ def _get_ansible_module_fqn(path: str) -> str:
 
 def _is_binary(module_data: bytes) -> bool:
     """Heuristic to classify a file as binary by sniffing a 1k header; see https://stackoverflow.com/a/7392391"""
-    textchars = bytearray(set([7, 8, 9, 10, 12, 13, 27]) | set(range(0x20, 0x100)) - set([0x7f]))
+    textchars = bytearray(set([7, 8, 9, 10, 12, 13, 27]) | set(range(0x20, 0x100)) - set([0x7F]))
     start = module_data[:1024]
     return bool(start.translate(None, textchars))
