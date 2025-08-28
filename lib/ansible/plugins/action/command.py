@@ -14,13 +14,10 @@ class ActionModule(ActionBase):
         results = super(ActionModule, self).run(tmp, task_vars)
         del tmp  # tmp no longer has any effect
 
-        wrap_async = self._task.async_val and not self._connection.has_native_async
         # explicitly call `ansible.legacy.command` for backcompat to allow library/ override of `command` while not allowing
         # collections search for an unqualified `command` module
-        results = merge_hash(results, self._execute_module(module_name='ansible.legacy.command', task_vars=task_vars, wrap_async=wrap_async))
+        results = merge_hash(results, self.execute_module(module_name='ansible.legacy.command', task_vars=task_vars))
 
-        if not wrap_async:
-            # remove a temporary path we created
-            self._remove_tmp_path(self._connection._shell.tmpdir)
+        self.cleanup()
 
         return results

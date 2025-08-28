@@ -108,7 +108,7 @@ class ActionModule(ActionBase):
             # use slurp if permissions are lacking or privilege escalation is needed
             remote_data = None
             if remote_checksum in (None, '1', ''):
-                slurpres = self._execute_module(module_name='ansible.legacy.slurp', module_args=dict(src=source), task_vars=task_vars)
+                slurpres = self.execute_module(module_name='ansible.legacy.slurp', module_args=dict(src=source), task_vars=task_vars)
                 if slurpres.get('failed'):
                     if not fail_on_missing:
                         result['file'] = source

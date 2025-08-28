@@ -16,8 +16,8 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+from ansible._internal import _arg_defaults
 from ansible.errors import AnsibleActionFail
-from ansible.executor.module_common import _apply_action_arg_defaults
 from ansible.module_utils.facts.system.pkg_mgr import PKG_MGRS
 from ansible.plugins.action import ActionBase
 from ansible.utils.display import Display
@@ -63,7 +63,7 @@ class ActionModule(ActionBase):
                     else:
                         # we had no facts, so generate them
                         # very expensive step, we actually run fact gathering because we don't have facts for this host.
-                        facts = self._execute_module(
+                        facts = self.execute_module(
                             module_name='ansible.legacy.setup',
                             module_args=dict(filter='ansible_pkg_mgr', gather_subset='!all'),
                             task_vars=task_vars,
@@ -92,14 +92,14 @@ class ActionModule(ActionBase):
 
                     # get defaults for specific module
                     context = self._shared_loader_obj.module_loader.find_plugin_with_context(module, collection_list=self._task.collections)
-                    new_module_args = _apply_action_arg_defaults(context.resolved_fqcn, self._task, new_module_args, self._templar)
+                    new_module_args = _arg_defaults.apply_action_arg_defaults(context.resolved_fqcn, self._task, new_module_args, self._templar)
 
                     if module in self.BUILTIN_PKG_MGR_MODULES:
                         # prefix with ansible.legacy to eliminate external collisions while still allowing library/ override
                         module = 'ansible.legacy.' + module
 
                     display.vvvv("Running %s" % module)
-                    return self._execute_module(module_name=module, module_args=new_module_args, task_vars=task_vars, wrap_async=self._task.async_val)
+                    return self.execute_module(module_name=module, module_args=new_module_args, task_vars=task_vars)
             else:
                 raise AnsibleActionFail('Could not detect which package manager to use. Try gathering facts or setting the "use" option.')
         finally:

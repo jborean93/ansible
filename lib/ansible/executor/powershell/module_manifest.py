@@ -375,8 +375,10 @@ def _create_powershell_wrapper(
     module_data: bytes,
     module_path: str,
     module_args: dict[t.Any, t.Any],
+    chdir: str | None,
     environment: dict[str, str],
     async_timeout: int,
+    async_dir: str | None,
     become_plugin: BecomeBase | None,
     substyle: t.Literal["powershell", "script"],
     task_vars: dict[str, t.Any],
@@ -391,8 +393,10 @@ def _create_powershell_wrapper(
     :param module_data: The data of the module or script.
     :param module_path: The path of the module or script.
     :param module_args: The arguments to pass to the module or script.
+    :param chdir: The working directory to change to before executing the module or script.
     :param environment: The environment variables to set when running the module or script.
     :param async_timeout: The timeout to use for async execution or 0 for no async.
+    :param async_dir: The directory to use for the async results file or None for no async.
     :param become_plugin: The become plugin to use for privilege escalation or None for no become.
     :param substyle: The substyle of the module or script to run [powershell or script].
     :param task_vars: The task variables used on the task.
@@ -414,6 +418,7 @@ def _create_powershell_wrapper(
     module_params: dict[str, t.Any] = {
         'Script': name_with_ext,
         'Environment': environment,
+        'WorkingDirectory': chdir,
     }
     if substyle != 'script':
         module_deps = finder.scan_module(
@@ -470,9 +475,9 @@ def _create_powershell_wrapper(
         finder.scan_exec_script('bootstrap_wrapper.ps1')
         finder.scan_exec_script('exec_wrapper.ps1')
 
-        async_dir = environment.get('ANSIBLE_ASYNC_DIR', None)
         if not async_dir:
-            raise AnsibleError("The environment variable 'ANSIBLE_ASYNC_DIR' is not set.")
+            # This should not happen but just in case.
+            raise AnsibleError("PowerShell async was requested but no directory was specified.")
 
         finder.scan_exec_script('async_wrapper.ps1')
         actions.append(

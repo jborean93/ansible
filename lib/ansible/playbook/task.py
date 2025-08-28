@@ -22,7 +22,6 @@ import typing as t
 from ansible import constants as C
 from ansible.module_utils.common.sentinel import Sentinel
 from ansible.errors import AnsibleError, AnsibleParserError, AnsibleUndefinedVariable, AnsibleAssertionError, AnsibleValueOmittedError
-from ansible.executor.module_common import _get_action_arg_defaults
 from ansible.module_utils.common.text.converters import to_native
 from ansible.module_utils._internal._datatag import AnsibleTagHelper
 from ansible.parsing.mod_args import ModuleArgsParser, RAW_PARAM_MODULES
@@ -38,7 +37,7 @@ from ansible.playbook.loop_control import LoopControl
 from ansible.playbook.notifiable import Notifiable
 from ansible.playbook.role import Role
 from ansible.playbook.taggable import Taggable
-from ansible._internal import _task
+from ansible._internal import _arg_defaults, _task
 from ansible._internal._templating import _marker_behaviors
 from ansible._internal._templating._jinja_bits import is_possibly_all_template, is_possibly_template
 from ansible._internal._templating._engine import TemplateEngine, TemplateOptions
@@ -217,7 +216,7 @@ class Task(Base, Conditional, Taggable, CollectionSearch, Notifiable, Delegatabl
                 raise AnsibleError(f'Action {module_or_action_context.resolved_fqcn!r} does not support raw params.', obj=self.action)
 
         args_finalizer = _task.TaskArgsFinalizer(
-            _get_action_arg_defaults(module_or_action_context.resolved_fqcn, self, templar),
+            _arg_defaults.get_action_arg_defaults(module_or_action_context.resolved_fqcn, self, templar),
             vp,
             raw_params_to_finalize,
             value,

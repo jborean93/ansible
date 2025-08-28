@@ -94,7 +94,12 @@ begin {
     }
 
     # $Script:AnsibleManifest = @{}  # Defined in process/end.
-    $Script:AnsibleShouldConstrain = [SystemPolicy]::GetSystemLockdownPolicy() -eq 'Enforce'
+    $Script:AnsibleShouldConstrain = if ($PSVersionTable.PSVersion -lt '6.0' -or $IsWindows) {
+        [SystemPolicy]::GetSystemLockdownPolicy() -eq 'Enforce'
+    }
+    else {
+        $false
+    }
     $Script:AnsibleTrustedHashList = [HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $Script:AnsibleUnsupportedHashList = [HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $Script:AnsibleWrapperWarnings = [List[string]]::new()

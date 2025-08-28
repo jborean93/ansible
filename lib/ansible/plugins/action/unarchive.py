@@ -95,6 +95,6 @@ class ActionModule(ActionBase):
 
             # execute the unarchive module now, with the updated args (using ansible.legacy prefix to eliminate collections
             # collisions with local override
-            return self._execute_module(module_name='ansible.legacy.unarchive', module_args=new_module_args, task_vars=task_vars)
+            return self.execute_module(module_name='ansible.legacy.unarchive', module_args=new_module_args, task_vars=task_vars)
         finally:
             self._remove_tmp_path(self._connection._shell.tmpdir)

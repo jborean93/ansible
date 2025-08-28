@@ -46,7 +46,7 @@ class ActionModule(ActionBase):
             results['started'] = True
 
         new_module_args['_async_dir'] = async_dir
-        results = merge_hash(results, self._execute_module(module_name='ansible.legacy.async_status', task_vars=task_vars, module_args=new_module_args))
+        results = merge_hash(results, self.execute_module(module_name='ansible.legacy.async_status', task_vars=task_vars, module_args=new_module_args))
 
         # Backwards compat shim for when started/finished were ints,
         # mostly to work with ansible.windows.async_status

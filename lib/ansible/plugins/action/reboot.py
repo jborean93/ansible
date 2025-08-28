@@ -137,7 +137,7 @@ class ActionModule(ActionBase):
         # FIXME: only execute the module if we don't already have the facts we need
         distribution = {}
         display.debug('{action}: running setup module to get distribution'.format(action=self._task.action))
-        module_output = self._execute_module(
+        module_output = self.execute_module(
             task_vars=task_vars,
             module_name='ansible.legacy.setup',
             module_args={'gather_subset': 'min'})
@@ -183,7 +183,7 @@ class ActionModule(ActionBase):
                 command=shutdown_bin,
                 paths=search_paths))
 
-            find_result = self._execute_module(
+            find_result = self.execute_module(
                 task_vars=task_vars,
                 # prevent collection search by calling with ansible.legacy (still allows library/ override of find)
                 module_name='ansible.legacy.find',

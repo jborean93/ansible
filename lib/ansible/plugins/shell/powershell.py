@@ -49,9 +49,16 @@ def _replace_stderr_clixml(stderr: bytes) -> bytes:
 
     :returns: The stderr with the decoded CLIXML data or the original data.
     """
-    clixml_header = b"#< CLIXML\r\n"
+    clixml_header = b"#< CLIXML"
 
-    if stderr.find(clixml_header) == -1:
+    # Instead of checking both patterns we just see if the next char
+    # is \r or \n to match both Windows and POSIX newline after the marker.
+    clixml_idx = stderr.find(clixml_header)
+    if clixml_idx == -1:
+        return stderr
+
+    newline_idx = clixml_idx + 9
+    if len(stderr) < (newline_idx + 1) or stderr[newline_idx] not in (ord(b'\r'), ord(b'\n')):
         return stderr
 
     lines: list[bytes] = []
@@ -94,8 +101,9 @@ def _replace_stderr_clixml(stderr: bytes) -> bytes:
                 lines.append(clixml_header)
                 lines.append(line)
 
-        elif line == clixml_header:
+        elif line.startswith(clixml_header):
             # The next line should contain the full CLIXML data.
+            clixml_header = line  # Preserve original newlines value.
             is_clixml = True
 
         else:

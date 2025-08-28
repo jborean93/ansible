@@ -32,18 +32,14 @@ class ActionModule(ActionBase):
         result = super(ActionModule, self).run(tmp, task_vars)
         del tmp  # tmp no longer has any effect
 
-        wrap_async = self._task.async_val and not self._connection.has_native_async
-
         # do work!
-        result = merge_hash(result, self._execute_module(task_vars=task_vars, wrap_async=wrap_async))
+        result = merge_hash(result, self.execute_module(task_vars=task_vars))
 
         # hack to keep --verbose from showing all the setup module result
         # moved from setup module as now we filter out all _ansible_ from result
         if self._task.action in C._ACTION_SETUP:
             result['_ansible_verbose_override'] = True
 
-        if not wrap_async:
-            # remove a temporary path we created
-            self._remove_tmp_path(self._connection._shell.tmpdir)
+        self.cleanup()
 
         return result

@@ -16,8 +16,8 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+from ansible._internal import _arg_defaults
 from ansible.errors import AnsibleActionFail
-from ansible.executor.module_common import _apply_action_arg_defaults
 from ansible.plugins.action import ActionBase
 
 
@@ -54,9 +54,12 @@ class ActionModule(ActionBase):
 
         try:
             if module == 'auto':
-                facts = self._execute_module(
+                facts = self.execute_module(
                     module_name='ansible.legacy.setup',
-                    module_args=dict(gather_subset='!all', filter='ansible_service_mgr'), task_vars=task_vars)
+                    module_args=dict(gather_subset='!all', filter='ansible_service_mgr'),
+                    task_vars=task_vars,
+                    async_timeout=0,
+                )
                 self._display.debug("Facts %s" % facts)
                 module = facts.get('ansible_facts', {}).get('ansible_service_mgr', 'auto')
 
@@ -77,14 +80,14 @@ class ActionModule(ActionBase):
 
                 # get defaults for specific module
                 context = self._shared_loader_obj.module_loader.find_plugin_with_context(module, collection_list=self._task.collections)
-                new_module_args = _apply_action_arg_defaults(context.resolved_fqcn, self._task, new_module_args, self._templar)
+                new_module_args = _arg_defaults.apply_action_arg_defaults(context.resolved_fqcn, self._task, new_module_args, self._templar)
 
                 # collection prefix known internal modules to avoid collisions from collections search, while still allowing library/ overrides
                 if module in self.BUILTIN_SVC_MGR_MODULES:
                     module = 'ansible.legacy.' + module
 
                 self._display.vvvv("Running %s" % module)
-                return self._execute_module(module_name=module, module_args=new_module_args, task_vars=task_vars, wrap_async=self._task.async_val)
+                return self.execute_module(module_name=module, module_args=new_module_args, task_vars=task_vars)
             else:
                 raise AnsibleActionFail('Could not detect which service manager to use. Try gathering facts or setting the "use" option.')
 

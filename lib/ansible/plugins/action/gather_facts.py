@@ -8,8 +8,8 @@ import time
 import typing as t
 
 from ansible import constants as C
+from ansible._internal import _arg_defaults
 from ansible.errors import AnsibleActionFail
-from ansible.executor.module_common import _apply_action_arg_defaults
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.plugins.action import ActionBase
 from ansible.utils.vars import merge_hash
@@ -53,7 +53,7 @@ class ActionModule(ActionBase):
             fact_module, collection_list=self._task.collections
         ).resolved_fqcn
 
-        mod_args = _apply_action_arg_defaults(resolved_fact_module, self._task, mod_args, self._templar)
+        mod_args = _arg_defaults.apply_action_arg_defaults(resolved_fact_module, self._task, mod_args, self._templar)
 
         return mod_args
 
@@ -126,7 +126,7 @@ class ActionModule(ActionBase):
                 # just one module, no need for fancy async
                 mod_args = self._get_module_args(fact_module, task_vars)
                 # TODO: use gather_timeout to cut module execution if module itself does not support gather_timeout
-                res = self._execute_module(module_name=fact_module, module_args=mod_args, task_vars=task_vars, wrap_async=False)
+                res = self.execute_module(module_name=fact_module, module_args=mod_args, task_vars=task_vars, async_timeout=0)
                 if res.get('failed', False):
                     failed[fact_module] = res
                 elif res.get('skipped', False):
@@ -144,20 +144,19 @@ class ActionModule(ActionBase):
 
                 #  if module does not handle timeout, use timeout to handle module, hijack async_val as this is what async_wrapper uses
                 # TODO: make this action complain about async/async settings, use parallel option instead .. or remove parallel in favor of async settings?
+                async_timeout = async_val
                 if timeout and 'gather_timeout' not in mod_args:
-                    self._task.async_val = int(timeout)
-                elif async_val != 0:
-                    self._task.async_val = async_val
+                    async_timeout = int(timeout)
                 else:
-                    self._task.async_val = 0
+                    async_timeout = async_val
 
                 self._display.vvvv("Running %s" % fact_module)
-                jobs[fact_module] = (self._execute_module(module_name=fact_module, module_args=mod_args, task_vars=task_vars, wrap_async=True))
+                jobs[fact_module] = (self.execute_module(module_name=fact_module, module_args=mod_args, task_vars=task_vars, async_timeout=async_timeout))
 
             while jobs:
                 for module in jobs:
                     poll_args = {'jid': jobs[module]['ansible_job_id'], '_async_dir': os.path.dirname(jobs[module]['results_file'])}
-                    res = self._execute_module(module_name='ansible.legacy.async_status', module_args=poll_args, task_vars=task_vars, wrap_async=False)
+                    res = self.execute_module(module_name='ansible.legacy.async_status', module_args=poll_args, task_vars=task_vars, async_timeout=0)
                     if res.get('finished', False):
                         if res.get('failed', False):
                             failed[module] = res
@@ -171,10 +170,6 @@ class ActionModule(ActionBase):
                         time.sleep(0.1)
                 else:
                     time.sleep(0.5)
-
-        # restore value for post processing
-        if self._task.async_val != async_val:
-            self._task.async_val = async_val
 
         if skipped:
             result['msg'] = f"The following modules were skipped: {', '.join(skipped.keys())}."

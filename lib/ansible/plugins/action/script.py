@@ -22,9 +22,9 @@ import re
 import shlex
 import typing as _t
 
+from ansible._internal._module import _builder, _pwsh
 from ansible.errors import AnsibleError, AnsibleActionFail, AnsibleActionSkip
-from ansible.executor.powershell import module_manifest as ps_manifest
-from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
+from ansible.module_utils.common.text.converters import to_native, to_text
 from ansible.plugins.action import ActionBase
 
 
@@ -131,38 +131,41 @@ class ActionModule(ActionBase):
             self._fixup_perms2((self._connection._shell.tmpdir, tmp_src), execute=True)
 
             # add preparation steps to one ssh roundtrip executing the script
-            env_dict: dict[str, _t.Any] = {}
-            env_string = self._compute_environment_string(env_dict)
+            env_dict = self._compute_environment()
+            env_string = self._connection._shell.env_prefix(**env_dict)
 
+            cmd_args = [target_command]
             if executable:
-                script_cmd = ' '.join([env_string, executable, target_command])
-            else:
-                script_cmd = ' '.join([env_string, target_command])
+                cmd_args.insert(0, executable)
+            if env_string:
+                cmd_args.insert(0, env_string)
 
-            script_cmd = self._connection._shell.wrap_for_exec(script_cmd)
-
+            script_cmd = self._connection._shell.wrap_for_exec(' '.join(cmd_args))
             exec_data = None
+
             # PowerShell runs the script in a special wrapper to enable things
             # like become and environment args
             if getattr(self._connection._shell, "_IS_WINDOWS", False):
-                # FUTURE: use a more public method to get the exec payload
-                pc = self._task
-                exec_data = ps_manifest._create_powershell_wrapper(
-                    name=f"ansible.builtin.script.{pathlib.Path(source).stem}",
-                    module_data=to_bytes(script_cmd),
-                    module_path=source,
-                    module_args={},
-                    environment=env_dict,
-                    async_timeout=self._task.async_val,
-                    become_plugin=self._connection.become,
-                    substyle="script",
-                    task_vars=task_vars,
-                    profile='legacy',  # the profile doesn't really matter since the module args dict is empty
+                builder = _pwsh.PwshModuleBuilder(
+                    module_fqn=f"ansible.builtin.script.{pathlib.Path(source).stem}",
+                    path=source,
+                    data=script_cmd.encode('utf-8'),
+                    is_windows=True,
+                    substyle='script',
+                    chdir=chdir,
                 )
-                # build the necessary exec wrapper command
-                # FUTURE: this still doesn't let script work on Windows with non-pipelined connections or
-                # full manual exec of KEEP_REMOTE_FILES
-                script_cmd = self._connection._shell.build_module_command(env_string='', shebang='#!powershell', cmd='')
+                options = _builder.BuildOptions(
+                    module_args=dict(),
+                    shell=self._connection._shell,
+                    become=self._connection.become,
+                    task_vars=task_vars,
+                    environment=env_dict,
+                )
+                module = builder.build_module(options)
+
+                script_cmd = self._connection._shell.join(module.cmd)
+                exec_data = module.in_data
+                chdir = None  # Handled in wrapper.
 
             # now we execute script, always assume changed.
             result: dict[str, object] = dict(self._low_level_execute_command(cmd=script_cmd, in_data=exec_data, sudoable=True, chdir=chdir), changed=True)

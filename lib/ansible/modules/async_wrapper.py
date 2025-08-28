@@ -113,14 +113,6 @@ def _filter_non_json_lines(data):
     return ('\n'.join(lines), warnings)
 
 
-def _get_interpreter(module_path):
-    with open(module_path, 'rb') as module_fd:
-        head = module_fd.read(1024)
-        if head[0:2] != b'#!':
-            return None
-        return head[2:head.index(b'\n')].strip().split(b' ')
-
-
 def jwrite(info):
     jobfile = job_path + ".tmp"
     tjob = open(jobfile, "w")
@@ -134,7 +126,7 @@ def jwrite(info):
         os.rename(jobfile, job_path)
 
 
-def _run_module(wrapped_cmd, jid):
+def _run_module(interpreter, module_path, jid, *module_args):
 
     # DTFIX-FUTURE: needs rework for serialization profiles
 
@@ -151,12 +143,9 @@ def _run_module(wrapped_cmd, jid):
     filtered_outdata = ''
     stderr = ''
     try:
-        cmd = [to_bytes(c, errors='surrogate_or_strict') for c in shlex.split(wrapped_cmd)]
-        # call the module interpreter directly (for non-binary modules)
-        # this permits use of a script for an interpreter on non-Linux platforms
-        interpreter = _get_interpreter(cmd[0])
-        if interpreter:
-            cmd = interpreter + cmd
+        cmd = [to_bytes(interpreter), to_bytes(module_path)]
+        cmd.extend(to_bytes(a) for a in module_args)
+
         script = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -193,7 +182,7 @@ def _run_module(wrapped_cmd, jid):
         e = sys.exc_info()[1]
         result = {
             "failed": True,
-            "cmd": wrapped_cmd,
+            "cmd": shlex.join(cmd),
             "msg": to_text(e),
             "outdata": outdata,  # temporary notice only
             "stderr": stderr
@@ -204,7 +193,7 @@ def _run_module(wrapped_cmd, jid):
     except Exception:
         result = {
             "failed": True,
-            "cmd": wrapped_cmd,
+            "cmd": shlex.join(cmd),
             "data": outdata,  # temporary notice only
             "stderr": stderr,
             "msg": traceback.format_exc()
@@ -217,25 +206,16 @@ def main():
     if len(sys.argv) < 5:
         end({
             "failed": True,
-            "msg": "usage: async_wrapper <jid> <time_limit> <modulescript> <argsfile> [-preserve_tmp]  "
+            "msg": "usage: async_wrapper <jid> <time_limit> <preserve_tmp> <module_interpreter> <wrapped_module> ..."
                    "Humans, do not call directly!"
         }, 1)
 
     jid = "%s.%d" % (sys.argv[1], os.getpid())
     time_limit = sys.argv[2]
-    wrapped_module = sys.argv[3]
-    argsfile = sys.argv[4]
-    if '-tmp-' not in os.path.dirname(wrapped_module):
-        preserve_tmp = True
-    elif len(sys.argv) > 5:
-        preserve_tmp = sys.argv[5] == '-preserve_tmp'
-    else:
-        preserve_tmp = False
-    # consider underscore as no argsfile so we can support passing of additional positional parameters
-    if argsfile != '_':
-        cmd = "%s %s" % (wrapped_module, argsfile)
-    else:
-        cmd = wrapped_module
+    preserve_tmp = sys.argv[3].lower() == 'true'
+    module_interpreter = sys.argv[4]
+    wrapped_module = sys.argv[5]
+    module_args = sys.argv[6:]
     step = 5
 
     async_dir = os.environ.get('ANSIBLE_ASYNC_DIR', '~/.ansible_async')
@@ -335,7 +315,7 @@ def main():
             else:
                 # the child process runs the actual module
                 notice("Start module (%s)" % os.getpid())
-                _run_module(cmd, jid)
+                _run_module(module_interpreter, wrapped_module, jid, *module_args)
                 notice("Module complete (%s)" % os.getpid())
 
     except Exception as e:

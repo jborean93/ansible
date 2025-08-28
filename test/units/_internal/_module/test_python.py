@@ -23,22 +23,21 @@ import pytest
 
 import ansible.errors
 
-from ansible.executor import module_common as amc
-from ansible.executor.interpreter_discovery import InterpreterDiscoveryRequiredError
+from ansible._internal._module import _finder, _python
 
 
 class TestStripComments:
     def test_no_changes(self):
         no_comments = u"""def some_code():
     return False"""
-        assert amc._strip_comments(no_comments) == no_comments
+        assert _python._strip_comments(no_comments) == no_comments
 
     def test_all_comments(self):
         all_comments = u"""# This is a test
             # Being as it is
             # To be
             """
-        assert amc._strip_comments(all_comments) == u"\n\n\n"
+        assert _python._strip_comments(all_comments) == u"\n\n\n"
 
     def test_all_whitespace(self):
         all_whitespace = (
@@ -51,7 +50,7 @@ class TestStripComments:
             '            '
         )
 
-        assert amc._strip_comments(all_whitespace) == u"\n\n\n\n\n\n"
+        assert _python._strip_comments(all_whitespace) == u"\n\n\n\n\n\n"
 
     def test_somewhat_normal(self):
         mixed = u"""#!/usr/bin/python
@@ -71,57 +70,26 @@ def test(arg):
     thing = '# test'
     return thing
 """
-        assert amc._strip_comments(mixed) == mixed_results
+        assert _python._strip_comments(mixed) == mixed_results
 
 
 class TestSlurp:
     def test_slurp_nonexistent(self, mocker):
         mocker.patch('os.path.exists', side_effect=lambda x: False)
         with pytest.raises(ansible.errors.AnsibleError):
-            amc._slurp('no_file')
+            _python._slurp('no_file')
 
     def test_slurp_file(self, mocker):
         mocker.patch('os.path.exists', side_effect=lambda x: True)
         m = mocker.mock_open(read_data='This is a test')
         mocker.patch('builtins.open', m)
-        assert amc._slurp('some_file') == 'This is a test'
+        assert _python._slurp('some_file') == 'This is a test'
 
     def test_slurp_file_with_newlines(self, mocker):
         mocker.patch('os.path.exists', side_effect=lambda x: True)
         m = mocker.mock_open(read_data='#!/usr/bin/python\ndef test(args):\nprint("hi")\n')
         mocker.patch('builtins.open', m)
-        assert amc._slurp('some_file') == '#!/usr/bin/python\ndef test(args):\nprint("hi")\n'
-
-
-class TestGetShebang:
-    """Note: We may want to change the API of this function in the future.  It isn't a great API"""
-    def test_no_interpreter_set(self, templar):
-        # normally this would return /usr/bin/python, but so long as we're defaulting to auto python discovery, we'll get
-        # an InterpreterDiscoveryRequiredError here instead
-        with pytest.raises(InterpreterDiscoveryRequiredError):
-            amc._get_shebang(u'/usr/bin/python', {}, templar)
-
-    def test_python_interpreter(self, templar):
-        assert amc._get_shebang(u'/usr/bin/python3.8', {}, templar) == ('#!/usr/bin/python3.8', u'/usr/bin/python3.8')
-
-    def test_non_python_interpreter(self, templar):
-        assert amc._get_shebang(u'/usr/bin/ruby', {}, templar) == ('#!/usr/bin/ruby', u'/usr/bin/ruby')
-
-    def test_interpreter_set_in_task_vars(self, templar):
-        assert amc._get_shebang(u'/usr/bin/python', {u'ansible_python_interpreter': u'/usr/bin/pypy'}, templar) == \
-            (u'#!/usr/bin/pypy', u'/usr/bin/pypy')
-
-    def test_non_python_interpreter_in_task_vars(self, templar):
-        assert amc._get_shebang(u'/usr/bin/ruby', {u'ansible_ruby_interpreter': u'/usr/local/bin/ruby'}, templar) == \
-            (u'#!/usr/local/bin/ruby', u'/usr/local/bin/ruby')
-
-    def test_with_args(self, templar):
-        assert amc._get_shebang(u'/usr/bin/python', {u'ansible_python_interpreter': u'/usr/bin/python3'}, templar, args=('-tt', '-OO')) == \
-            (u'#!/usr/bin/python3 -tt -OO', u'/usr/bin/python3')
-
-    def test_python_via_env(self, templar):
-        assert amc._get_shebang(u'/usr/bin/python', {u'ansible_python_interpreter': u'/usr/bin/env python'}, templar) == \
-            (u'#!/usr/bin/env python', u'/usr/bin/env python')
+        assert _python._slurp('some_file') == '#!/usr/bin/python\ndef test(args):\nprint("hi")\n'
 
 
 class TestDetectionRegexes:
@@ -148,7 +116,7 @@ class TestDetectionRegexes:
         b'from ansible_collecitons.my_ns.my_col.plugins.modules import function',
     )
 
-    OFFSET = os.path.dirname(os.path.dirname(amc.__file__))
+    OFFSET = os.path.dirname(os.path.dirname(os.path.dirname(_python.__file__)))
     CORE_PATHS = (
         ('%s/modules/from_role.py' % OFFSET, 'ansible/modules/from_role'),
         ('%s/modules/system/ping.py' % OFFSET, 'ansible/modules/system/ping'),
@@ -164,24 +132,24 @@ class TestDetectionRegexes:
 
     @pytest.mark.parametrize('testcase', ANSIBLE_MODULE_UTIL_STRINGS)
     def test_detect_new_style_python_module_re(self, testcase):
-        assert amc.NEW_STYLE_PYTHON_MODULE_RE.search(testcase)
+        assert _python.NEW_STYLE_PYTHON_MODULE_RE.search(testcase)
 
     @pytest.mark.parametrize('testcase', NOT_ANSIBLE_MODULE_UTIL_STRINGS)
     def test_no_detect_new_style_python_module_re(self, testcase):
-        assert not amc.NEW_STYLE_PYTHON_MODULE_RE.search(testcase)
+        assert not _python.NEW_STYLE_PYTHON_MODULE_RE.search(testcase)
 
     @pytest.mark.parametrize('testcase, result', CORE_PATHS)
     def test_detect_core_library_path_re(self, testcase, result):
-        assert amc.CORE_LIBRARY_PATH_RE.search(testcase).group('path') == result
+        assert _finder._CORE_LIBRARY_PATH_RE.search(testcase).group('path') == result
 
     @pytest.mark.parametrize('testcase', (p[0] for p in COLLECTION_PATHS))
     def test_no_detect_core_library_path_re(self, testcase):
-        assert not amc.CORE_LIBRARY_PATH_RE.search(testcase)
+        assert not _finder._CORE_LIBRARY_PATH_RE.search(testcase)
 
     @pytest.mark.parametrize('testcase, result', COLLECTION_PATHS)
     def test_detect_collection_path_re(self, testcase, result):
-        assert amc.COLLECTION_PATH_RE.search(testcase).group('path') == result
+        assert _finder._COLLECTION_PATH_RE.search(testcase).group('path') == result
 
     @pytest.mark.parametrize('testcase', (p[0] for p in CORE_PATHS))
     def test_no_detect_collection_path_re(self, testcase):
-        assert not amc.COLLECTION_PATH_RE.search(testcase)
+        assert not _finder._COLLECTION_PATH_RE.search(testcase)

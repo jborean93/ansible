@@ -1,21 +1,3 @@
-# (c) 2013-2014, Michael DeHaan <michael.dehaan@gmail.com>
-# (c) 2015 Toshio Kuratomi <tkuratomi@ansible.com>
-#
-# This file is part of Ansible
-#
-# Ansible is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# Ansible is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
-
 from __future__ import annotations
 
 import typing as t
@@ -31,8 +13,7 @@ from ansible.utils.display import Display
 display = Display()
 
 
-
-def _get_action_arg_defaults(action: str, task: Task, templar: TemplateEngine) -> dict[str, t.Any]:
+def get_action_arg_defaults(action: str, task: Task, templar: TemplateEngine) -> dict[str, t.Any]:
     action_groups = task._parent._play._action_groups
     defaults = task.module_defaults
 
@@ -68,8 +49,8 @@ def _get_action_arg_defaults(action: str, task: Task, templar: TemplateEngine) -
     return tmp_args
 
 
-def _apply_action_arg_defaults(action: str, task: Task, action_args: dict[str, t.Any], templar: Templar) -> dict[str, t.Any]:
-    args = _get_action_arg_defaults(action, task, templar._engine)
+def apply_action_arg_defaults(action: str, task: Task, action_args: dict[str, t.Any], templar: Templar) -> dict[str, t.Any]:
+    args = get_action_arg_defaults(action, task, templar._engine)
     args.update(action_args)
 
     return args

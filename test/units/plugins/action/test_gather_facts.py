@@ -24,7 +24,7 @@ from ansible import constants as C
 from ansible.playbook.task import Task
 from ansible.plugins.action.gather_facts import ActionModule as GatherFactsAction
 from ansible._internal._templating._engine import TemplateEngine
-from ansible.executor import module_common
+from ansible._internal._module import _python
 
 from units.mock.loader import DictDataLoader
 
@@ -44,7 +44,7 @@ class TestNetworkFacts(unittest.TestCase):
     def tearDown(self):
         pass
 
-    @patch.object(module_common, '_get_collection_metadata', return_value={})
+    @patch.object(_python, '_get_collection_metadata', return_value={})
     def test_network_gather_facts_smart_facts_module(self, mock_collection_metadata):
         self.fqcn_task_vars = {'ansible_network_os': 'ios'}
         self.task.action = 'gather_facts'
@@ -70,7 +70,7 @@ class TestNetworkFacts(unittest.TestCase):
             ('ansible.legacy.ios_facts', {'ansible_network_os': 'ios'},)
         )
 
-    @patch.object(module_common, '_get_collection_metadata', return_value={})
+    @patch.object(_python, '_get_collection_metadata', return_value={})
     def test_network_gather_facts_smart_facts_module_fqcn(self, mock_collection_metadata):
         self.fqcn_task_vars = {'ansible_network_os': 'cisco.ios.ios'}
         self.task.action = 'gather_facts'

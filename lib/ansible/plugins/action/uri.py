@@ -37,7 +37,7 @@ class ActionModule(ActionBase):
                 # everything is remote, so we just execute the module
                 # without changing any of the module arguments
                 # call with ansible.legacy prefix to prevent collections collisions while allowing local override
-                return self._execute_module(module_name='ansible.legacy.uri', task_vars=task_vars, wrap_async=self._task.async_val)
+                return self.execute_module(module_name='ansible.legacy.uri', task_vars=task_vars)
 
             kwargs = {}
 
@@ -75,7 +75,7 @@ class ActionModule(ActionBase):
             new_module_args = self._task.args | kwargs
 
             # call with ansible.legacy prefix to prevent collections collisions while allowing local override
-            return self._execute_module('ansible.legacy.uri', module_args=new_module_args, task_vars=task_vars, wrap_async=self._task.async_val)
+            return self.execute_module('ansible.legacy.uri', module_args=new_module_args, task_vars=task_vars)
         finally:
             if not self._task.async_val:
                 self._remove_tmp_path(self._connection._shell.tmpdir)

@@ -38,6 +38,10 @@ param(
     $Breakpoints,
 
     [Parameter()]
+    [string]
+    $WorkingDirectory,
+
+    [Parameter()]
     [switch]
     $ForModule
 )
@@ -102,6 +106,16 @@ else {
     # for modules as they are loaded from memory whereas a script is loaded
     # from disk as part of the script being run than by us.
     Set-WinPSDefaultFileEncoding
+}
+
+$originalWorkingDir = $null
+if ($WorkingDirectory) {
+    $ps.Runspace.SessionStateProxy.Path.SetLocation($WorkingDirectory)
+    # The above only set the PowerShell provider location, we also want to set
+    # the process working dir as .NET and other things outside pwsh are based
+    # on that.
+    $originalWorkingDir = [Environment]::CurrentDirectory
+    [Environment]::CurrentDirectory = $WorkingDirectory
 }
 
 foreach ($variable in $Variables) {
@@ -209,6 +223,9 @@ finally {
     if ($newOut) {
         [Console]::SetOut($origOut)
         $newOut.Dispose()
+    }
+    if ($originalWorkingDir) {
+        [Environment]::WorkingDirectory = $originalWorkingDir
     }
 }
 

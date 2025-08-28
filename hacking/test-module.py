@@ -40,12 +40,13 @@ import shutil
 
 from pathlib import Path
 
+from ansible._internal._module import _builder, _finder, _python
 from ansible.release import __version__
 import ansible.utils.vars as utils_vars
 from ansible.parsing.dataloader import DataLoader
 from ansible.parsing.splitter import parse_kv
 from ansible.plugins.loader import init_plugin_loader
-from ansible.executor import module_common
+from ansible.plugins.shell.sh import ShellModule as ShShellPlugin
 import ansible.constants as C
 from ansible.module_utils.common.text.converters import to_native, to_text
 from ansible.template import Templar
@@ -129,7 +130,7 @@ def get_interpreters(interpreter):
     return result
 
 
-def boilerplate_module(modfile, args, interpreters, check, destfile):
+def build_module(modfile, args, interpreters, check, destfile):
     """ simulate what ansible does with new style modules """
 
     # module_fh = open(modfile)
@@ -171,40 +172,62 @@ def boilerplate_module(modfile, args, interpreters, check, destfile):
     modname = os.path.basename(modfile)
     modname = os.path.splitext(modname)[0]
 
-    built_module = module_common.modify_module(
-        module_name=modname,
-        module_path=modfile,
+    module_builder = _finder.get_module_data(modname, modfile)
+
+    if module_builder.shebang:
+        interpreter_key = f"ansible_{os.path.basename(module_builder.shebang[0])}_interpreter"
+        if custom_interpreter := interpreters.get(interpreter_key):
+            module_builder.update_shebang(custom_interpreter)
+
+    build_options = _builder.BuildOptions(
         module_args=complex_args,
+        shell=ShShellPlugin(),
+        task_vars=task_vars,
+        tmpdir="/tmp-fake",  # Forces non-pipelined module to be built, this path is changed after.
         templar=Templar(loader=loader),
-        task_vars=task_vars
     )
 
-    module_data, module_style = built_module.b_module_data, built_module.module_style
+    built_module = module_builder.build_module(build_options)
+    module_cmd = built_module.cmd
 
-    if module_style == 'new' and '_ANSIBALLZ_WRAPPER = True' in to_native(module_data):
-        module_style = 'ansiballz'
+    module_path_idx = 1
+    if module_cmd[0].startswith('/tmp-fake'):
+        # Running a binary module or some unknown scenario where the
+        # interpreter wasn't set so first arg is the module path.
+        module_path_idx = 0
 
+    # As we provided a fake tmpdir to the builder we need to change the cmd and
+    # remote tmp listing to the user supplied file.
     modfile2_path = os.path.expanduser(destfile)
+    module_cmd[module_path_idx] = modfile2_path
+
     print("* including generated source, if any, saving to: %s" % modfile2_path)
-    if module_style not in ('ansiballz', 'old'):
+    if built_module.temp_files[0].data:
+        # Content was dynamically generated or changed from the source.
         print("* this may offset any line numbers in tracebacks/debuggers!")
-    with open(modfile2_path, 'wb') as modfile2:
-        modfile2.write(module_data)
-    modfile = modfile2_path
-
-    return (modfile2_path, modname, module_style)
-
-
-def ansiballz_setup(modfile, modname, interpreters):
-    os.system("chmod +x %s" % modfile)
-
-    if 'ansible_python_interpreter' in interpreters:
-        command = [interpreters['ansible_python_interpreter']]
+        with open(modfile2_path, 'wb') as modfile2:
+            modfile2.write(built_module.temp_files[0].data)
     else:
-        command = []
-    command.extend([modfile, 'explode'])
+        shutil.copyfile(built_module.temp_files[0].local_path, modfile2_path)
 
-    cmd = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # If the args are not embedded in the module the next argument should be
+    # the args file.
+    if len(module_cmd) > (module_path_idx + 1):
+        arg_path = str(Path("~/.ansible_test_module_arguments").expanduser())
+        module_cmd[module_path_idx + 1] = arg_path
+
+        if built_module.temp_files[1].data:
+            with open(arg_path, 'wb') as argfile:
+                argfile.write(built_module.temp_files[1].data)
+        else:
+            shutil.copyfile(built_module.temp_files[1].local_path, arg_path)
+
+    return modname, module_cmd, isinstance(module_builder, _python.PythonModuleBuilder)
+
+
+def ansiballz_setup(modname, module_args):
+    explode_cmd = [module_args[0], module_args[1], 'explode']
+    cmd = subprocess.Popen(explode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = cmd.communicate()
     out, err = to_text(out, errors='surrogate_or_strict'), to_text(err)
     lines = out.splitlines()
@@ -231,24 +254,19 @@ def ansiballz_setup(modfile, modname, interpreters):
     argsfile = os.path.join(debug_dir, 'args')
 
     print("* ansiballz module detected; extracted module source to: %s" % debug_dir)
-    return modfile, argsfile
+    return [
+        module_args[0],  # Include the interpreter,
+        modfile,
+        argsfile,
+    ]
 
 
-def runtest(modfile, argspath, modname, module_style, interpreters):
+def runtest(modname, module_args, is_python_ansiballz):
     """Test run a module, piping it's output for reporting."""
-    invoke = ""
-    if module_style == 'ansiballz':
-        modfile, argspath = ansiballz_setup(modfile, modname, interpreters)
-        if 'ansible_python_interpreter' in interpreters:
-            invoke = "%s " % interpreters['ansible_python_interpreter']
+    if is_python_ansiballz:
+        module_args = ansiballz_setup(modname, module_args)
 
-    os.system("chmod +x %s" % modfile)
-
-    invoke = "%s%s" % (invoke, modfile)
-    if argspath is not None:
-        invoke = "%s %s" % (invoke, argspath)
-
-    cmd = subprocess.Popen(invoke, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = subprocess.Popen(module_args, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     (out, err) = cmd.communicate()
     out, err = to_text(out), to_text(err)
 
@@ -270,16 +288,14 @@ def runtest(modfile, argspath, modname, module_style, interpreters):
     print(jsonify(results, format=True))
 
 
-def rundebug(debugger, modfile, argspath, modname, module_style, interpreters):
+def rundebug(debugger, modname, module_args, is_python_ansiballz):
     """Run interactively with console debugger."""
 
-    if module_style == 'ansiballz':
-        modfile, argspath = ansiballz_setup(modfile, modname, interpreters)
+    if is_python_ansiballz:
+        module_args = ansiballz_setup(modname, module_args)
 
-    if argspath is not None:
-        subprocess.call("%s %s %s" % (debugger, modfile, argspath), shell=True)
-    else:
-        subprocess.call("%s %s" % (debugger, modfile), shell=True)
+    module_args.insert(0, debugger)
+    subprocess.call(module_args, shell=True)
 
 
 def main():
@@ -287,22 +303,13 @@ def main():
     options, args = parse()
     init_plugin_loader()
     interpreters = get_interpreters(options.interpreter)
-    (modfile, modname, module_style) = boilerplate_module(options.module_path, options.module_args, interpreters, options.check, options.filename)
-
-    argspath = None
-    if module_style not in ('new', 'ansiballz'):
-        if module_style in ('non_native_want_json', 'binary'):
-            argspath = write_argsfile(options.module_args, json=True)
-        elif module_style == 'old':
-            argspath = write_argsfile(options.module_args, json=False)
-        else:
-            raise Exception("internal error, unexpected module style: %s" % module_style)
+    modname, module_args, is_python_ansiballz = build_module(options.module_path, options.module_args, interpreters, options.check, options.filename)
 
     if options.execute:
         if options.debugger:
-            rundebug(options.debugger, modfile, argspath, modname, module_style, interpreters)
+            rundebug(options.debugger, modname, module_args, is_python_ansiballz)
         else:
-            runtest(modfile, argspath, modname, module_style, interpreters)
+            runtest(modname, module_args, is_python_ansiballz)
 
 
 if __name__ == "__main__":

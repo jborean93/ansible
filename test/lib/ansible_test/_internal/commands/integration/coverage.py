@@ -228,7 +228,7 @@ class PosixCoverageHandler(CoverageHandler[PosixConfig]):
         """Return a dictionary of environment variables for running tests with code coverage."""
 
         # Enable code coverage collection on Ansible modules (both local and remote).
-        # Used by the AnsiballZ wrapper generator in lib/ansible/executor/module_common.py to support code coverage.
+        # Used by the AnsiballZ wrapper generator in lib/ansible/_internal/_module/_python.py to support code coverage.
         config_file = os.path.join(self.common_temp_path, COVERAGE_CONFIG_NAME)
 
         # Include the command, target and platform marker so the remote host can create a filename with that info.

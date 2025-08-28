@@ -105,7 +105,7 @@ class ActionModule(ActionBase):
 
             if boolean(remote_src, strict=False):
                 # call assemble via ansible.legacy to allow library/ overrides of the module without collection search
-                return self._execute_module(module_name='ansible.legacy.assemble', task_vars=task_vars)
+                return self.execute_module(module_name='ansible.legacy.assemble', task_vars=task_vars)
 
             src = self._find_needle('files', src)
 
@@ -147,12 +147,12 @@ class ActionModule(ActionBase):
 
                 new_module_args.update(dict(src=xfered,))
 
-                res = self._execute_module(module_name='ansible.legacy.copy', module_args=new_module_args, task_vars=task_vars)
+                res = self.execute_module(module_name='ansible.legacy.copy', module_args=new_module_args, task_vars=task_vars)
                 if diff:
                     res['diff'] = diff
                 return res
             else:
-                return self._execute_module(module_name='ansible.legacy.file', module_args=new_module_args, task_vars=task_vars)
+                return self.execute_module(module_name='ansible.legacy.file', module_args=new_module_args, task_vars=task_vars)
 
         finally:
             self._remove_tmp_path(self._connection._shell.tmpdir)

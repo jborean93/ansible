@@ -239,7 +239,14 @@ class ShellBase(AnsiblePlugin):
         """Return the working directory after connecting"""
         return 'echo %spwd%s' % (self._SHELL_SUB_LEFT, self._SHELL_SUB_RIGHT)
 
-    def build_module_command(self, env_string, shebang, cmd, arg_path=None):
+    def build_module_command(
+        self,
+        env_string: str,
+        shebang: str,
+        cmd: str,
+        arg_path: str | None = None,
+    ) -> str:
+        # FIXME: Add deprecation as this is not used anywhere anymore.
         env_string = env_string.strip()
         if env_string:
             env_string += ' '

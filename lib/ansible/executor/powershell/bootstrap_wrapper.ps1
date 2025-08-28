@@ -1,3 +1,5 @@
+param ([string]$InputFile)
+
 if ($PSVersionTable.PSVersion -lt [Version]"5.1") {
     '{"failed":true,"msg":"Ansible requires PowerShell v5.1"}'
     exit 1
@@ -6,13 +8,35 @@ if ($PSVersionTable.PSVersion -lt [Version]"5.1") {
 # First input is a JSON string with name/script/params of what to run. This
 # ends with a line of 4 null bytes and subsequent input is piped to the code
 # provided.
-$codeJson = foreach ($in in $input) {
+if ($InputFile) {
+    if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+        # While this reads it all in memory there is no other way to avoid this
+        # if running in CLM. Only way to avoid this is to have the caller start
+        # the process with the content's piped but that is hard to do cross
+        # platform.
+        Get-Content -LiteralPath $InputFile -Encoding UTF8 |
+            & $MyInvocation.MyCommand.ScriptBlock
+        return
+    }
+    else {
+        # .GetEnumerator() is important to ensure we stream the lines rather
+        # than read it all here.
+        $inputData = [System.IO.File]::ReadLines(
+            $InputFile,
+            [System.Text.Encoding]::UTF8).GetEnumerator()
+    }
+}
+else {
+    $inputData = $input
+}
+
+$codeJson = foreach ($in in $inputData) {
     if ([string]::Equals($in, "`0`0`0`0")) {
         break
     }
     $in
 }
-$code = ConvertFrom-Json -InputObject $codeJson
+$code = $codeJson | ConvertFrom-Json
 $splat = @{}
 foreach ($obj in $code.params.PSObject.Properties) {
     $splat[$obj.Name] = $obj.Value
@@ -40,7 +64,7 @@ try {
         $filePath
     }
 
-    $input | & $cmd @splat
+    $inputData | & $cmd @splat
 }
 finally {
     if ($filePath -and (Test-Path -LiteralPath $filePath)) {
