@@ -1017,5 +1017,6 @@ if __name__ == "__main__":
                 temp_files=[],
                 environment=options.environment,
                 has_async=False,
+                has_become=False,
                 serialization_profile=cached_module.metadata.serialization_profile,
             )

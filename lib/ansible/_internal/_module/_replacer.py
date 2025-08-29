@@ -80,5 +80,6 @@ class ReplacerModuleData(_builder.ModuleBuilder):
                 temp_files=[],
                 environment=options.environment,
                 has_async=False,
+                has_become=False,
                 serialization_profile="legacy",
             )

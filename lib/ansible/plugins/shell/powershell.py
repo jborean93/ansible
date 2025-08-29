@@ -20,6 +20,7 @@ import re
 import shlex
 import xml.etree.ElementTree as ET
 import ntpath
+import typing as t
 
 from ansible.executor.powershell.module_manifest import _bootstrap_powershell_script, _get_powershell_script
 from ansible.module_utils.common.text.converters import to_bytes, to_text
@@ -33,6 +34,11 @@ display = Display()
 # matches for '_x(a-fA-F0-9){4}_'. The \x00 and {4} will match the hex sequence
 # when it is encoded as utf-16-be byte sequence.
 _STRING_DESERIAL_FIND = re.compile(rb"\x00_\x00x((?:\x00[a-fA-F0-9]){4})\x00_")
+
+# PowerShell has 5 characters it uses as a single quote, we need to double up on all of them.
+# https://github.com/PowerShell/PowerShell/blob/b7cb335f03fe2992d0cbd61699de9d9aafa1d7c1/src/System.Management.Automation/engine/parser/CharTraits.cs#L265-L272
+# https://github.com/PowerShell/PowerShell/blob/b7cb335f03fe2992d0cbd61699de9d9aafa1d7c1/src/System.Management.Automation/engine/parser/CharTraits.cs#L18-L21
+_UNSAFE_PWSH = re.compile(u"(['\u2018\u2019\u201a\u201b])")
 
 _common_args = ['PowerShell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Unrestricted']
 
@@ -174,6 +180,14 @@ def _parse_clixml(data: bytes, stream: str = "Error") -> bytes:
 
     return to_bytes(''.join(lines), errors="surrogatepass")
 
+
+class _PowerShellCmdStr(str):
+    """Used to smuggle the original cmd args for the winrm/psrp connection plugin."""
+
+    def __new__(cls, value: str, cmd_args: list[str]) -> t.Self:
+        instance = super().__new__(cls, value)
+        instance._cmd_args = cmd_args
+        return instance
 
 class ShellModule(ShellBase):
 
@@ -437,6 +451,17 @@ class ShellModule(ShellBase):
 
     def wrap_for_exec(self, cmd):
         return '& %s; exit $LASTEXITCODE' % cmd
+
+    def quote(self, cmd: str) -> str:
+        return "'{0}'".format(_UNSAFE_PWSH.sub('\\1\\1', cmd))
+
+    def join(self, cmd_parts: list[str]) -> str:
+        # We should always quote values in PowerShell as it has conflicting
+        # rules where strings can and can't be quoted. This means we quote the
+        # entire value with single quotes and just double up on the single
+        # quote equivalent chars.
+        cmd = " ".join([self.quote(s) for s in cmd_parts])
+        return _PowerShellCmdStr(cmd, cmd_parts)
 
     def _unquote(self, value):
         """Remove any matching quotes that wrap the given value."""

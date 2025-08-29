@@ -1497,12 +1497,6 @@ class Connection(ConnectionBase):
 
         display.vvv(u"ESTABLISH SSH CONNECTION FOR USER: {0}".format(self.user), host=self.host)
 
-        if getattr(self._shell, "_IS_WINDOWS", False):
-            # Become method 'runas' is done in the wrapper that is executed,
-            # need to disable sudoable so the bare_run is not waiting for a
-            # prompt that will not occur
-            sudoable = False
-
         # we can only use tty when we are not pipelining the modules. piping
         # data into /usr/bin/python inside a tty automatically invokes the
         # python interactive-mode but the modules are not compatible with the

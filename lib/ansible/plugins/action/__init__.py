@@ -1160,7 +1160,7 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
         # Copy across any temporary files the module requires to run.
         remote_files = self._transfer_module_files(module_info.temp_files)
 
-        sudoable = True
+        sudoable = not module_info.has_become
         in_data = module_info.in_data
         cmd_args = module_info.cmd
         cmd_env = module_info.environment

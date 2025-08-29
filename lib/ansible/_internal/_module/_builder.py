@@ -72,6 +72,8 @@ class BuiltModule:
     """Environment variables that need to be set when starting the cmd."""
     has_async: bool = False
     """The module includes an async implementation and does not require a wrapper."""
+    has_become: bool = False
+    """The module includes become support and does not require a wrapper."""
     serialization_profile: str = "legacy"
     """The serialization profile used for deserializing the return data."""
 
@@ -186,6 +188,7 @@ class ModuleBuilder:
             temp_files=temp_files,
             environment=options.environment,
             has_async=False,
+            has_become=False,
             serialization_profile="legacy",
         )
 

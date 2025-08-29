@@ -131,6 +131,7 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
         # FUTURE: Add a way for pwsh modules to set this.
         serialization_profile = "legacy"
         build_has_async = True
+        build_has_become = True
         build_environment = {}
 
         cmd_args = self._get_pwsh_args()
@@ -148,6 +149,7 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
                 wrapper_kwargs['async_dir'] = options.async_opts.path
         else:
             build_has_async = False
+            build_has_become = False
             build_environment = options.environment
 
             if options.async_opts and not options.tmpdir:
@@ -191,6 +193,7 @@ class PwshModuleBuilder(_builder.ModuleBuilder):
             temp_files=temp_files,
             environment=build_environment,
             has_async=build_has_async,
+            has_become=build_has_become,
             serialization_profile=serialization_profile,
         )
 
