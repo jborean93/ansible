@@ -96,19 +96,29 @@ def results_thread_main(strategy: StrategyBase) -> None:
     while True:
         try:
             result = strategy._final_q.get()
+            if not (isinstance(result, DisplaySend) and result.method == "logging_display"):
+                display.display(f"***** Task Queue Get ***** - {type(result)}", color="yellow")
+
             if isinstance(result, StrategySentinel):
                 break
             elif isinstance(result, DisplaySend):
+                if result.method == 'logging_display':
+                    result.method = "display"
+                else:
+                    display.display(f"DisplaySend(method={result.method!r}, *args={result.args!r}, **kwargs={result.kwargs!r})", color="blue")
                 dmethod = getattr(display, result.method)
                 dmethod(*result.args, **result.kwargs)
             elif isinstance(result, CallbackSend):
+                display.display(f"CallbackSend {result!r}", color="magenta")
                 task_result = strategy._convert_wire_task_result_to_raw(result.wire_task_result)
                 strategy._tqm.send_callback(result.method_name, task_result)
             elif isinstance(result, _WireTaskResult):
+                display.display(f"_WireTaskResult {result!r}", color="green")
                 result = strategy._convert_wire_task_result_to_raw(result)
                 with strategy._results_lock:
                     strategy._results.append(result)
             elif isinstance(result, PromptSend):
+                display.display(f"PromptSend {result!r}", color="red")
                 try:
                     value = display.prompt_until(
                         result.prompt,

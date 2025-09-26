@@ -90,20 +90,32 @@ class FinalQueue(multiprocessing.queues.SimpleQueue):
         super().__init__(*args, **kwargs)
 
     def send_callback(self, method_name: str, task_result: _RawTaskResult) -> None:
-        self.put(CallbackSend(method_name=method_name, wire_task_result=task_result.as_wire_task_result()))
+        callback = CallbackSend(method_name=method_name, wire_task_result=task_result.as_wire_task_result())
+
+        self.put(DisplaySend('logging_display', f"***** Task Queue Put ***** - {type(callback)}", color="yellow"))
+        self.put(DisplaySend('logging_display', f"CallbackSend {callback!r}", color="magenta"))
+        self.put(callback)
 
     def send_task_result(self, task_result: _RawTaskResult) -> None:
-        self.put(task_result.as_wire_task_result())
+        wire_result = task_result.as_wire_task_result()
+
+        self.put(DisplaySend('logging_display', f"***** Task Queue Put ***** - {type(wire_result)}", color="yellow"))
+        self.put(DisplaySend('logging_display', f"_WireTaskResult {wire_result!r}", color="green"))
+        self.put(wire_result)
 
     def send_display(self, method, *args, **kwargs):
-        self.put(
-            DisplaySend(method, *args, **kwargs),
-        )
+        display_send = DisplaySend(method, *args, **kwargs)
+
+        self.put(DisplaySend('logging_display', f"***** Task Queue Put ***** - {type(display_send)}", color="yellow"))
+        self.put(DisplaySend('logging_display', f"DisplaySend(method={method!r}, *args={args!r}, **kwargs={kwargs!r})", color="blue"))
+        self.put(display_send)
 
     def send_prompt(self, **kwargs):
-        self.put(
-            PromptSend(**kwargs),
-        )
+        prompt_send = PromptSend(**kwargs)
+
+        self.put(DisplaySend('logging_display', f"***** Task Queue Put ***** - {type(prompt_send)}", color="yellow"))
+        self.put(DisplaySend('logging_display', f"PromptSend {prompt_send!r}", color="red"))
+        self.put(prompt_send)
 
 
 class AnsibleEndPlay(Exception):
