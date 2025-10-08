@@ -455,9 +455,11 @@ class Connection(ConnectionBase):
             raise AnsibleError('No transport found for WinRM connection')
 
     def _winrm_write_stdin(self, command_id: str, stdin_iterator: t.Iterable[tuple[bytes, bool]]) -> None:
+        count = 0
         for (data, is_last) in stdin_iterator:
             for attempt in range(1, 4):
                 try:
+                    display.debug(f"_winrm_write_stdin stdin chunk={count}, size={len(data)}, eof={is_last}, attempt={attempt}")
                     self._winrm_send_input(self.protocol, self.shell_id, command_id, data, eof=is_last)
 
                 except WinRMOperationTimeoutError:
@@ -467,6 +469,7 @@ class Connection(ConnectionBase):
                     # continue. As the calling method still tries to wait for
                     # the proc to end if this failed it shouldn't hurt to just
                     # treat this as a warning.
+                    display.debug(f"_winrm_write_stdin WinRMOperationTimeoutError chunk={count}, attempt={attempt}")
                     display.warning(
                         "WSMan OperationTimeout during send input, attempting to continue. "
                         "If this continues to occur, try increasing the connection_timeout "
@@ -482,6 +485,7 @@ class Connection(ConnectionBase):
                     # fully giving up.
                     # pywinrm does not expose the internal WSMan fault details
                     # through an actual object but embeds it as a repr.
+                    display.debug(f"_winrm_write_stdin WinRMError chunk={count}, attempt={attempt}: {e}\n{traceback.format_exc()}")
                     if attempt == 3 or "'wsmanfault_code': '170'" not in str(e):
                         raise
 
@@ -490,6 +494,9 @@ class Connection(ConnectionBase):
                     continue
 
                 break
+
+            display.debug(f"_winrm_write_stdin chunk completed, chunk={count}")
+            count += 1
 
     def _winrm_send_input(self, protocol: winrm.Protocol, shell_id: str, command_id: str, stdin: bytes, eof: bool = False) -> None:
         rq = {'env:Envelope': protocol._get_soap_header(
@@ -560,8 +567,10 @@ class Connection(ConnectionBase):
 
         while not command_done:
             try:
+                display.debug(f"_winrm_get_command_output fetching output for command {command_id}, try_once={try_once}")
                 stdout, stderr, return_code, command_done = \
                     self._winrm_get_raw_command_output(protocol, shell_id, command_id)
+                display.debug(f"_winrm_get_command_output fetched chunk for command {command_id}, done={command_done}, rc={return_code}, stdout={stdout!r}, stderr={stderr!r}")
                 stdout_buffer.append(stdout)
                 stderr_buffer.append(stderr)
 
@@ -571,6 +580,7 @@ class Connection(ConnectionBase):
             except WinRMOperationTimeoutError:
                 # This is an expected error when waiting for a long-running process,
                 # just silently retry if we haven't been set to do one attempt.
+                display.debug(f"_winrm_get_command_output WinRMOperationTimeoutError command {command_id}, try_once={try_once}")
                 if try_once:
                     break
                 continue
@@ -604,6 +614,7 @@ class Connection(ConnectionBase):
                     self._winrm_write_stdin(command_id, stdin_iterator)
 
             except Exception as ex:
+                display.debug(f"_winrm_exec _winrm_write_stdin exception: {ex}\n{traceback.format_exc()}")
                 display.error_as_warning("ERROR DURING WINRM SEND INPUT. Attempting to recover.", ex)
                 stdin_push_failed = True
 
@@ -652,8 +663,10 @@ class Connection(ConnectionBase):
                 # the already encrypted payload bound to the other socket
                 # causing the server to reply with 400 Bad Request.
                 try:
+                    display.debug(f"_winrm_exec cleaning up command {command_id}")
                     self.protocol.cleanup_command(self.shell_id, command_id)
                 except WinRMTransportError as e:
+                    display.debug(f"_winrm_exec cleanup_command WinRMTransportError: {e}\n{traceback.format_exc()}")
                     if e.code != 400:
                         raise
 
