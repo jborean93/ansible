@@ -77,7 +77,7 @@ ALLOW_BROKEN_CONDITIONALS:
   version_added: "2.19"
 ALLOW_EMBEDDED_TEMPLATES:
   name: Allow embedded templates
-  default: true
+  default: false
   description:
     - When enabled, this option allows embedded templates to be used for specific backward compatibility scenarios.
     - A deprecation warning will be emitted in these cases.
