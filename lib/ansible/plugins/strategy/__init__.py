@@ -39,6 +39,7 @@ from ansible._internal._task import WireTaskResult, HostTaskResult
 from ansible.executor.task_queue_manager import CallbackSend, DisplaySend, PromptSend, TaskQueueManager
 from ansible.module_utils.common.text.converters import to_text
 from ansible.module_utils.connection import Connection, ConnectionError
+from ansible.module_utils.secrets import register_secret
 from ansible.playbook.handler import Handler
 from ansible.playbook.helpers import load_list_of_blocks
 from ansible.playbook.included_file import IncludedFile
@@ -96,6 +97,9 @@ def results_thread_main(strategy: StrategyBase) -> None:
             if isinstance(result, StrategySentinel):
                 break
             elif isinstance(result, DisplaySend):
+                # SDFIX: use a multi-register mode
+                for s in result.new_secrets or []:
+                    register_secret(s)
                 dmethod = getattr(display, result.method)
                 dmethod(*result.args, **result.kwargs)
             elif isinstance(result, CallbackSend):
@@ -660,6 +664,10 @@ class StrategyBase:
                                     raise AnsibleError(msg)
 
                                 display.warning(msg)
+
+                    # SDFIX: HACK/TEST, handle on callback dispatch?
+                    for s in result_utr.new_secrets or []:
+                        register_secret(s)
 
                     if result_utr.pending_changes.register_host_variables:
                         original_host_list = self.get_task_hosts(iterator, original_host, original_task)

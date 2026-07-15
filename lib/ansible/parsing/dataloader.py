@@ -112,6 +112,9 @@ class DataLoader:
             if trusted_as_template:
                 file_data = TrustedAsTemplate().tag(file_data)
 
+            # SDFIX: if source was encrypted, recursive SensitiveData tag at least all str dict values (not keys?) and list values + add to secret masker store?
+            # SDFIX: other ways to opt-in/configure structured-file-level secrecy? (include keys, declarative, magic header, YAML tag bleh, ?)
+            # SDFIX: json_only is once again a problem if the file is encrypted and bypasses the YAML sensitivity check
             parsed_data = self.load(data=file_data, file_name=file_name, json_only=json_only)
 
             # only tagging the container, used by include_vars to determine if vars should be shown or not

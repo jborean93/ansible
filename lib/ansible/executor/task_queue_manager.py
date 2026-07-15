@@ -72,13 +72,16 @@ display = Display()
 class CallbackSend:
     method_name: str
     wire_task_result: WireTaskResult
+    # SDFIX: implement
+    new_secrets: set[str] | None = None
 
 
 class DisplaySend:
-    def __init__(self, method, *args, **kwargs):
+    def __init__(self, method, *args, new_secrets: set[str] | None = None, **kwargs):
         self.method = method
         self.args = args
         self.kwargs = kwargs
+        self.new_secrets = new_secrets
 
 
 @dataclasses.dataclass
@@ -97,14 +100,16 @@ class FinalQueue(multiprocessing.queues.SimpleQueue):
         super().__init__(*args, **kwargs)
 
     def send_callback(self, method_name: str, host: Host, task: Task, utr: UnifiedTaskResult) -> None:
+        # SDFIX: implement pending secret send here (utr should have it, but ideally should reset tracker)
         self.put(CallbackSend(method_name=method_name, wire_task_result=WireTaskResult.create(host=host, task=task, utr=utr)))
 
     def send_task_result(self, host: Host, task: Task, utr: UnifiedTaskResult) -> None:
         self.put(WireTaskResult.create(host=host, task=task, utr=utr))
 
-    def send_display(self, method, *args, **kwargs):
+    def send_display(self, method, *args, new_secrets: set[str] | None = None, **kwargs):
         self.put(
-            DisplaySend(method, *args, **kwargs),
+            # SDFIX: make this sampling reset the secret tracker
+            DisplaySend(method, *args, new_secrets=new_secrets, **kwargs),
         )
 
     def send_prompt(self, **kwargs):

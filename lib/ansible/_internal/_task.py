@@ -17,7 +17,7 @@ from ansible._internal._worker import _inventory_rpc
 from ansible._internal._datatag import _tags
 from ansible.errors import AnsibleError, AnsibleTemplateError
 from ansible.module_utils._internal._ambient_context import AmbientContextBase
-from ansible.module_utils._internal import _dataclass_validation, _event_utils, _messages, _traceback
+from ansible.module_utils._internal import _dataclass_validation, _event_utils, _messages, _secrets, _traceback
 from ansible.module_utils.datatag import native_type_name, deprecator_from_collection_name, deprecate_value
 from ansible.parsing import vault as _vault
 from ansible.template import trust_as_template
@@ -193,6 +193,7 @@ class TaskContext(AmbientContextBase):
     _templar: _engine.TemplateEngine | None = None
     _break_when_triggered: bool = False
     _inventory_rpc_client: _inventory_rpc.InventoryRPC | None = None
+    _new_secrets: _secrets.NewSecretTracker = dataclasses.field(default_factory=_secrets._secret_masker.track_new_secrets)
 
     pending_changes: PendingChanges | None = None
     """Pending changes which will be applied only if the current task succeeds."""
@@ -868,6 +869,10 @@ class UnifiedTaskResult:
     registered_values: c.Mapping[str, object] | None = None
     """Values to register unconditionally, including on failure or when skipped."""
 
+    # SDFIX: move elsewhere for use on both callback dispatch and results
+    # SDFIX: set vs list
+    new_secrets: list[str] | None = dataclasses.field(default=None, metadata=import_export("_ansible_new_secrets", source=Source.ANY, destination=Destination.CALLBACK))
+
     skip_reason: str | None = dataclasses.field(default=None, metadata=export_only())
     skipped_reason: str | None = dataclasses.field(default=None, metadata=export_only())
     """The `skipped_reason` field is deprecated. Use `skip_reason` instead."""
@@ -1162,6 +1167,10 @@ class UnifiedTaskResult:
             )
         else:
             self.exception = None
+
+        # SDFIX: find a better place for this; sync to controller on both callback dispatch and result/error
+        if (tc := TaskContext.current(optional=True)) and tc._new_secrets._new_secrets:
+            self.new_secrets = tc._new_secrets._new_secrets
 
     @classmethod
     def from_module_result_dict(cls, result: dict[str, object]) -> t.Self:

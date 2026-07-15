@@ -29,6 +29,8 @@ from ansible.module_utils.common.validation import (
     check_required_arguments,
 )
 
+from .. import secrets as _secrets
+
 from ansible.module_utils.errors import (
     AliasError,
     AnsibleValidationErrorMultiple,
@@ -39,7 +41,6 @@ from ansible.module_utils.errors import (
     RequiredError,
     UnsupportedError,
 )
-
 
 class ValidationResult:
     """Result of argument spec validation.
@@ -202,7 +203,7 @@ class ArgumentSpecValidator:
             })
 
         try:
-            result._no_log_values.update(_list_no_log_values(self.argument_spec, result._validated_parameters))
+            bleh = [_secrets.register_secret(s) for s in _list_no_log_values(self.argument_spec, result._validated_parameters)]
         except TypeError as te:
             result.errors.append(NoLogError(to_native(te)))
 
