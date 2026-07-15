@@ -112,6 +112,8 @@ class ActionModule(ActionBase):
         # Only echo input if no timeout is specified
         echo = seconds is None and echo
 
+        # SDFIX: (not caused by SD, just weird): timeout + prompt doesn't listen to user input without Ctrl-C, but then records it anyway until a C or A is seen, seems wrong
+
         user_input = b''
         try:
             _user_input = display.prompt_until(prompt, private=not echo, seconds=seconds, complete_input=default_input_complete)
@@ -143,5 +145,12 @@ class ActionModule(ActionBase):
         else:
             duration = round(duration, 2)
         result['stdout'] = "Paused for %s %s" % (duration, duration_unit)
-        result['user_input'] = to_text(user_input, errors='surrogate_or_strict')
+
+        user_input = to_text(user_input, errors='surrogate_or_strict')
+
+        if not echo and user_input:
+            from ansible.module_utils.secrets import register_secret
+            register_secret(user_input)
+
+        result['user_input'] = user_input
         return result

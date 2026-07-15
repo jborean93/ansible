@@ -1449,6 +1449,10 @@ class EncryptedString(AnsibleTaggedObject):
 
             object.__setattr__(self, '_plaintext', plaintext)
 
+            # SDFIX: better home?
+            from ansible.module_utils.secrets import register_secret
+            register_secret(plaintext)
+
         return self._plaintext
 
     def _as_dict(self) -> t.Dict[str, t.Any]:
