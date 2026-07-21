@@ -18,6 +18,7 @@ DOCUMENTATION = """
       - set as stdout in configuration
 """
 
+import datetime as _datetime
 import typing as _t
 
 from ansible import constants as C
@@ -194,7 +195,9 @@ class CallbackModule(CallbackBase):
             checkmsg = " [CHECK MODE]"
         else:
             checkmsg = ""
-        self._display.banner(u"%s [%s%s]%s" % (prefix, task_name, args, checkmsg))
+
+        now = _datetime.datetime.now().strftime("%H:%M:%S.%f")
+        self._display.banner(u"%s %s [%s%s]%s" % (prefix, now, task_name, args, checkmsg))
 
         if self._display.verbosity >= 2:
             self._print_task_path(task)

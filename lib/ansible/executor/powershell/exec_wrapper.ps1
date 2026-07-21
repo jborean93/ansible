@@ -58,6 +58,14 @@ begin {
     $ErrorActionPreference = "Stop"
     $ProgressPreference = "SilentlyContinue"
 
+    if (-not (Test-Path -Path C:\temp)) {
+        New-Item -Path C:\temp -ItemType Directory | Out-Null
+    }
+    $global:_Log = [IO.StreamWriter]::new("C:\temp\ansible-log.txt", $true, [Text.UTF8Encoding]::new($false))
+    $_Log.AutoFlush = $true
+
+    $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Starting exec_wrapper.ps1 with parameters: $($PSBoundParameters | ConvertTo-Json -Compress)")
+
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         Remove-Item -LiteralPath $PSCommandPath -Force
     }
@@ -807,6 +815,7 @@ end {
         }
 
         $out = $actionPipeline.End()
+        $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Ending exec_wrapper.ps1 with output`n$out")
         if ($EncodeInputOutput) {
             [Convert]::ToBase64String([Encoding]::UTF8.GetBytes($out))
         }
@@ -815,6 +824,7 @@ end {
         }
     }
     catch {
+        $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Caught error in exec_wrapper.ps1: $($_)`n$($_.Exception.StackTrace)")
         Write-AnsibleErrorJson -ErrorRecord $_
     }
     finally {
@@ -823,4 +833,6 @@ end {
             Remove-Item -LiteralPath $Script:AnsibleTempScripts -Force -ErrorAction Ignore
         }
     }
+
+    $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - exec_wrapper.ps1 finished")
 }

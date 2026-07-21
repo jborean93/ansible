@@ -217,9 +217,15 @@ try {
     $newOut = [StringWriter]::new($sb)
     [Console]::SetOut($newOut)
 
+    $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Starting module execution for '$Script'")
+
     $modOut = @($ps.Invoke())
+
+    $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Module execution finished for '$Script'")
 }
 catch {
+    $_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Caught error in module execution: $($_)`n$($_.Exception.StackTrace)")
+
     Write-AnsibleErrorDetail -ErrorRecord $_ -ForModule:$ForModule
     if ($ForModule) {
         $host.SetShouldExit(1)
@@ -232,6 +238,8 @@ finally {
         $newOut.Dispose()
     }
 }
+
+$_Log.WriteLine("$([DateTime]::Now.ToString('hh:mm:ss.ffff')) - Module execution output reset")
 
 $stdout = $sb.ToString()
 if ($stdout) {

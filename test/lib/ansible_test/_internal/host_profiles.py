@@ -1706,6 +1706,7 @@ class WindowsRemoteProfile(RemoteProfile[WindowsRemoteConfig]):
             ansible_user=connection.username,
             ansible_ssh_private_key_file=core_ci.ssh_key.key,  # required for scenarios which change the connection plugin to SSH
             ansible_test_connection_password=connection.password,  # required for scenarios which change the connection plugin to require a password
+            ansible_ssh_extra_args='-E /home/jborean/dev/ansible_collections/ansible/windows/ssh-testing/ssh.log -vvv',
         )
 
         variables.update(ansible_connection=self.config.connection.split('+')[0])
