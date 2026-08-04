@@ -38,6 +38,10 @@ param(
     $Breakpoints,
 
     [Parameter()]
+    [SecureString[]]
+    $Secrets,
+
+    [Parameter()]
     [switch]
     $ForModule
 )
@@ -206,6 +210,12 @@ ${function:<AnsibleModule>} = @($input)[0]
 
 if ($Breakpoints) {
     $ps.Runspace.Debugger.SetBreakpoints($Breakpoints)
+}
+
+if ($Secrets.Count) {
+    # Using SecureString is important to avoid AMSI and other logging tools
+    # from accidentially exposing the raw values.
+    [Ansible.Secrets.SecretMasker]::_RegisterAnsibleSecrets($Secrets)
 }
 
 # Temporarily override the stdout stream and create our own in a StringBuilder.

@@ -18,8 +18,10 @@ from importlib import import_module
 from ansible.module_utils.compat.version import LooseVersion
 
 from ansible import constants as C
+
 from ansible.module_utils.common.json import Direction, get_module_encoder
 from ansible.errors import AnsibleError, AnsibleFileNotFound
+from ansible.module_utils import secrets as _secrets
 from ansible.module_utils.common.text.converters import to_bytes, to_text
 from ansible.plugins.become import BecomeBase
 from ansible.plugins.become.runas import BecomeModule as RunasBecomeModule
@@ -423,6 +425,8 @@ def _create_powershell_wrapper(
         'Script': name_with_ext,
         'Environment': environment,
     }
+    secure_module_params: dict[str, t.Any] = {}
+
     if substyle != 'script':
         module_deps = finder.scan_module(
             module_data,
@@ -437,11 +441,13 @@ def _create_powershell_wrapper(
             else:
                 ps_deps.append(dep)
 
+        encoded_module_args = _prepare_module_args(module_args, profile)
+
         module_params |= {
             'Variables': [
                 {
                     'Name': 'complex_args',
-                    'Value': _prepare_module_args(module_args, profile),
+                    'Value': json.loads(encoded_module_args),
                     'Scope': 'Global',
                 },
             ],
@@ -449,6 +455,12 @@ def _create_powershell_wrapper(
             'PowerShellModules': ps_deps,
             'ForModule': True,
         }
+
+        # SDFIX: this is a hack, need to figure out a better way to deal with module args in pwsh.
+        # SDFIX: should we warn or fail if secrets are present and are not using our masker?
+        if 'Ansible.Secrets.cs' in cs_deps:
+            module_secrets = _secrets._secret_masker.secrets_in(encoded_module_args)
+            secure_module_params['Secrets'] = list(module_secrets)
 
     if become_plugin or finder.become:
         become_script = 'become_wrapper.ps1'
@@ -524,6 +536,7 @@ def _create_powershell_wrapper(
         _ManifestAction(
             name='module_wrapper.ps1',
             params=module_params,
+            secure_params=secure_module_params,
         ),
     )
 
@@ -582,14 +595,13 @@ def _get_bootstrap_input(
     return f"{bootstrap_input}\n\0\0\0\0\n{exec_input}".encode()
 
 
-def _prepare_module_args(module_args: dict[str, t.Any], profile: str) -> dict[str, t.Any]:
+def _prepare_module_args(module_args: dict[str, t.Any], profile: str) -> str:
     """
-    Serialize the module args with the specified profile and deserialize them with the Python built-in JSON decoder.
-    This is used to facilitate serializing module args with a different encoder (profile) than is used for the manifest.
+    Serialize the module args with the specified profile encoder.
     """
     encoder = get_module_encoder(profile, Direction.CONTROLLER_TO_MODULE)
 
-    return json.loads(json.dumps(module_args, cls=encoder))
+    return json.dumps(module_args, cls=encoder)
 
 
 def _get_powershell_signed_hashlist(
