@@ -10,10 +10,24 @@ namespace Ansible.Secrets
     {
         private static readonly SecretMasker _instance = new SecretMasker();
 
-        private readonly List<Node> _nodes;
+        private int[] _failureLink;
+        private int[] _outputLink;
+        private int[] _patternLength;
+        private int _nodeCount;
+
+        private readonly Dictionary<long, int> _trieGoto;
+        private readonly HashSet<char> _alphabet;
+
+        private int[] _transitions;
+        private int[] _charToIndex;
+        private int _alphaSize;
+        private char[] _prevAlpha;
+
         public readonly HashSet<string> _registered;
         private HashSet<string> _newSecrets;
         private bool _dirty;
+
+        private const int InitialNodeCapacity = 64;
 
         public static SecretMasker Instance
         {
@@ -23,51 +37,47 @@ namespace Ansible.Secrets
             }
         }
 
+        /// <summary>
+        /// Internal API: Used to register initial secrets known to Ansible.
+        /// </summary>
+        /// <param name="secrets">The initial secrets to register with the masker</param>
         public static void _RegisterAnsibleSecrets(IEnumerable<SecureString> secrets)
         {
-            // This isn't ideal but we need the plaintext string in memory and the
-            // SecureString was only a way to avoid AMSI/PowerShell logging of values
-            // rather than trying to protect them in memory.
             SecretMasker masker = SecretMasker.Instance;
 
             foreach (SecureString secret in secrets)
             {
-                if (secret.Length == 0)
-                {
-                    continue;
-                }
-
-                IntPtr stringPtr = IntPtr.Zero;
-                try
-                {
-                    stringPtr = Marshal.SecureStringToBSTR(secret);
-                    string secretString = Marshal.PtrToStringBSTR(stringPtr);
-                    masker.RegisterSecret(secretString);
-                }
-                finally
-                {
-                    if (stringPtr != IntPtr.Zero)
-                    {
-                        Marshal.ZeroFreeBSTR(stringPtr);
-                        stringPtr = IntPtr.Zero;
-                    }
-                }
+                masker.RegisterSecret(secret);
             }
 
-            // We want to keep track of new secrets so drain the ones we
-            // already know about.
             masker.DrainNewSecrets();
         }
 
         private SecretMasker()
         {
-            _nodes = new List<Node>();
+            _failureLink = new int[InitialNodeCapacity];
+            _outputLink = new int[InitialNodeCapacity];
+            _patternLength = new int[InitialNodeCapacity];
+            _nodeCount = 1;
+
+            _trieGoto = new Dictionary<long, int>();
+            _alphabet = new HashSet<char>();
+
+            _transitions = Array.Empty<int>();
+            _charToIndex = null;
+            _alphaSize = 0;
+            _prevAlpha = Array.Empty<char>();
+
             _registered = new HashSet<string>(StringComparer.Ordinal);
             _newSecrets = new HashSet<string>(StringComparer.Ordinal);
             _dirty = false;
-            _nodes.Add(new Node());
         }
 
+        /// <summary>
+        /// Drains any new secrets that have been registered since the last call to this method.
+        /// Used to determine what secrets need to be sent to the Ansible controller for masking.
+        /// </summary>
+        /// <returns>The unique secrets that have been registered.</returns>
         public HashSet<string> DrainNewSecrets()
         {
             HashSet<string> result = _newSecrets;
@@ -75,6 +85,38 @@ namespace Ansible.Secrets
             return result;
         }
 
+        /// <summary>
+        /// Registers a new secret with the masker.
+        /// </summary>
+        /// <param name="secret">The secret to register</param>
+        public void RegisterSecret(SecureString secret)
+        {
+            if (secret.Length == 0)
+            {
+                return;
+            }
+
+            IntPtr stringPtr = IntPtr.Zero;
+            try
+            {
+                stringPtr = Marshal.SecureStringToBSTR(secret);
+                string secretString = Marshal.PtrToStringBSTR(stringPtr);
+                RegisterSecret(secretString);
+            }
+            finally
+            {
+                if (stringPtr != IntPtr.Zero)
+                {
+                    Marshal.ZeroFreeBSTR(stringPtr);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Registers a new secret with the masker.
+        /// Use the SecureString overload if possible to avoid AMSI logging in PowerShell.
+        /// </summary>
+        /// <param name="secret">The secret to register</param>
         public void RegisterSecret(string secret)
         {
             if (string.IsNullOrEmpty(secret))
@@ -91,19 +133,21 @@ namespace Ansible.Secrets
             for (int i = 0; i < secret.Length; i++)
             {
                 char c = secret[i];
-                int next;
-                if (!_nodes[current].Children.TryGetValue(c, out next))
+                _alphabet.Add(c);
+
+                long key = ((long)current << 16) | (long)c;
+                if (!_trieGoto.TryGetValue(key, out int next))
                 {
-                    next = _nodes.Count;
-                    _nodes.Add(new Node());
-                    _nodes[current].Children[c] = next;
+                    next = _nodeCount++;
+                    EnsureNodeCapacity(_nodeCount);
+                    _trieGoto[key] = next;
                 }
                 current = next;
             }
 
-            if (_nodes[current].PatternLength == 0)
+            if (_patternLength[current] == 0)
             {
-                _nodes[current].PatternLength = secret.Length;
+                _patternLength[current] = secret.Length;
             }
 
             _dirty = true;
@@ -112,11 +156,22 @@ namespace Ansible.Secrets
             return;
         }
 
+        /// <summary>
+        /// Masks any registered secrets found in the input string with the default placeholder "<secret>".
+        /// </summary>
+        /// <param name="value">The input string to mask</param>
+        /// <returns>The masked string</returns>
         public string MaskString(string value)
         {
             return MaskString(value, "<secret>");
         }
 
+        /// <summary>
+        /// Masks any registered secrets found in the input string with the specified placeholder.
+        /// </summary>
+        /// <param name="value">The input string to mask</param>
+        /// <param name="maskPlaceholder">The placeholder to use for masking secrets</param>
+        /// <returns>The masked string</returns>
         public string MaskString(string value, string maskPlaceholder)
         {
             if (string.IsNullOrEmpty(value) || _registered.Count == 0)
@@ -135,21 +190,16 @@ namespace Ansible.Secrets
             int regionStart = -1;
             int regionEnd = -1;
             StringBuilder sb = null;
+            int alphaSize = _alphaSize;
+            int[] transitions = _transitions;
+            int[] charToIndex = _charToIndex;
 
             for (int i = 0; i < value.Length; i++)
             {
                 char c = value[i];
+                int ci = charToIndex[c];
 
-                while (state != 0 && !_nodes[state].Children.ContainsKey(c))
-                {
-                    state = _nodes[state].FailureLink;
-                }
-
-                int next;
-                if (_nodes[state].Children.TryGetValue(c, out next))
-                {
-                    state = next;
-                }
+                state = ci >= 0 ? transitions[state * alphaSize + ci] : 0;
 
                 int matchLen = GetLongestMatch(state);
                 if (matchLen > 0)
@@ -164,6 +214,10 @@ namespace Ansible.Secrets
                     }
                     else if (mStart < regionEnd)
                     {
+                        if (mStart < regionStart)
+                        {
+                            regionStart = mStart;
+                        }
                         if (mEnd > regionEnd)
                         {
                             regionEnd = mEnd;
@@ -201,6 +255,16 @@ namespace Ansible.Secrets
             return sb.ToString();
         }
 
+        private void EnsureNodeCapacity(int needed)
+        {
+            if (needed <= _failureLink.Length)
+                return;
+            int newCap = Math.Max(_failureLink.Length * 2, needed);
+            Array.Resize(ref _failureLink, newCap);
+            Array.Resize(ref _outputLink, newCap);
+            Array.Resize(ref _patternLength, newCap);
+        }
+
         private int GetLongestMatch(int state)
         {
             if (state == 0)
@@ -208,15 +272,15 @@ namespace Ansible.Secrets
                 return 0;
             }
 
-            if (_nodes[state].PatternLength > 0)
+            if (_patternLength[state] > 0)
             {
-                return _nodes[state].PatternLength;
+                return _patternLength[state];
             }
 
-            int outLink = _nodes[state].OutputLink;
+            int outLink = _outputLink[state];
             if (outLink > 0)
             {
-                return _nodes[outLink].PatternLength;
+                return _patternLength[outLink];
             }
 
             return 0;
@@ -224,69 +288,91 @@ namespace Ansible.Secrets
 
         private void BuildAutomaton()
         {
-            for (int i = 0; i < _nodes.Count; i++)
+            if (_charToIndex == null)
             {
-                _nodes[i].FailureLink = 0;
-                _nodes[i].OutputLink = 0;
+                _charToIndex = new int[65536];
+                Array.Fill(_charToIndex, -1);
+            }
+            else
+            {
+                for (int i = 0; i < _prevAlpha.Length; i++)
+                {
+                    _charToIndex[_prevAlpha[i]] = -1;
+                }
+            }
+
+            char[] alpha = new char[_alphabet.Count];
+            _alphabet.CopyTo(alpha);
+            _alphaSize = alpha.Length;
+            for (int i = 0; i < alpha.Length; i++)
+                _charToIndex[alpha[i]] = i;
+            _prevAlpha = alpha;
+
+            _transitions = new int[_nodeCount * _alphaSize];
+
+            foreach (KeyValuePair<long, int> kvp in _trieGoto)
+            {
+                int fromState = (int)(kvp.Key >> 16);
+                int ci = _charToIndex[(char)(kvp.Key & 0xFFFF)];
+                _transitions[fromState * _alphaSize + ci] = kvp.Value;
+            }
+
+            for (int i = 0; i < _nodeCount; i++)
+            {
+                _failureLink[i] = 0;
+                _outputLink[i] = 0;
             }
 
             Queue<int> queue = new Queue<int>();
 
-            foreach (KeyValuePair<char, int> kvp in _nodes[0].Children)
+            for (int ai = 0; ai < _alphaSize; ai++)
             {
-                _nodes[kvp.Value].FailureLink = 0;
-                queue.Enqueue(kvp.Value);
+                int child = _transitions[ai];
+                if (child != 0)
+                {
+                    _failureLink[child] = 0;
+                    queue.Enqueue(child);
+                }
             }
 
             while (queue.Count > 0)
             {
-                int current = queue.Dequeue();
+                int u = queue.Dequeue();
+                int uBase = u * _alphaSize;
+                int failBase = _failureLink[u] * _alphaSize;
 
-                foreach (KeyValuePair<char, int> kvp in _nodes[current].Children)
+                for (int ai = 0; ai < _alphaSize; ai++)
                 {
-                    char c = kvp.Key;
-                    int child = kvp.Value;
-                    queue.Enqueue(child);
-
-                    int f = _nodes[current].FailureLink;
-                    while (f != 0 && !_nodes[f].Children.ContainsKey(c))
+                    int v = _transitions[uBase + ai];
+                    if (v != 0)
                     {
-                        f = _nodes[f].FailureLink;
-                    }
+                        int fv = _transitions[failBase + ai];
+                        if (fv != v)
+                        {
+                            _failureLink[v] = fv;
+                        }
+                        else
+                        {
+                            _failureLink[v] = 0;
+                        }
 
-                    int fChild;
-                    if (_nodes[f].Children.TryGetValue(c, out fChild) && fChild != child)
-                    {
-                        _nodes[child].FailureLink = fChild;
+                        int fl = _failureLink[v];
+                        if (_patternLength[fl] > 0)
+                        {
+                            _outputLink[v] = fl;
+                        }
+                        else
+                        {
+                            _outputLink[v] = _outputLink[fl];
+                        }
+
+                        queue.Enqueue(v);
                     }
                     else
                     {
-                        _nodes[child].FailureLink = 0;
-                    }
-
-                    int fl = _nodes[child].FailureLink;
-                    if (_nodes[fl].PatternLength > 0)
-                    {
-                        _nodes[child].OutputLink = fl;
-                    }
-                    else
-                    {
-                        _nodes[child].OutputLink = _nodes[fl].OutputLink;
+                        _transitions[uBase + ai] = _transitions[failBase + ai];
                     }
                 }
-            }
-        }
-
-        private class Node
-        {
-            public readonly Dictionary<char, int> Children;
-            public int FailureLink;
-            public int OutputLink;
-            public int PatternLength;
-
-            public Node()
-            {
-                Children = new Dictionary<char, int>();
             }
         }
     }
