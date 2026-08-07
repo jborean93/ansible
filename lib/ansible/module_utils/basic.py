@@ -1318,8 +1318,8 @@ class AnsibleModule(object):
         _skip_stackwalk = True
 
         # SDFIX: optimization/least-knowledge: sniff result object and only report new secrets that appear in it? eg don't report a module-initiated secret that isn't in the result (only used for module-time masking like syslog)
-        if self._new_secrets._new_secrets:
-            kwargs['_ansible_new_secrets'] = self._new_secrets._new_secrets
+        if flushed := self._new_secrets.flush():
+            kwargs['_ansible_new_secrets'] = list(flushed)
 
         self.add_path_info(kwargs)
 

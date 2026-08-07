@@ -406,14 +406,7 @@ class Display(metaclass=Singleton):
                 # If _final_q is set, that means we are in a WorkerProcess
                 # and instead of displaying messages directly from the fork
                 # we will proxy them through the queue
-                # SDFIX HACK
-                from ansible._internal._task import TaskContext
-                if (tc := TaskContext.current(optional=True)) and tc._new_secrets._new_secrets:
-                    ns = tc._new_secrets._new_secrets  # SDFIX reset
-                else:
-                    ns = None
-
-                return self._final_q.send_display(func.__name__, *args, new_secrets=ns, **kwargs)
+                return self._final_q.send_display(func.__name__, *args, **kwargs)
             return func(self, *args, **kwargs)
         return wrapper
 
