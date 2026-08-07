@@ -109,5 +109,12 @@ class NewSecretTracker:
         if self in self._masker._new_secret_trackers:
             self._masker._new_secret_trackers.remove(self)
 
+    def flush(self) -> set[str] | None:
+        if not self._new_secrets:
+            return None
+        flushed = self._new_secrets
+        self._new_secrets = set()
+        return flushed
+
 
 _secret_masker = SecretMasker()  # default shared instance
