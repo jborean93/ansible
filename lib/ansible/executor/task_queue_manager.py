@@ -38,6 +38,7 @@ from ansible.executor.stats import AggregateStats
 from ansible.executor.task_result import CallbackTaskResult
 from ansible.inventory.manager import InventoryManager
 from ansible.module_utils.common.text.converters import to_native
+from ansible.module_utils.secrets import register_secret
 from ansible.parsing.dataloader import DataLoader
 from ansible.playbook.play_context import PlayContext
 from ansible.playbook.task import Task
@@ -45,7 +46,7 @@ from ansible.plugins.callback import CallbackBase
 from ansible.plugins.loader import callback_loader, strategy_loader, module_loader
 from ansible._internal._plugins import _strategy
 from ansible._internal._templating._engine import TemplateEngine
-from ansible._internal._task import UnifiedTaskResult, WireTaskResult, HostTaskResult
+from ansible._internal._task import UnifiedTaskResult, WireTaskResult, HostTaskResult, TaskContext
 from ansible.vars.hostvars import HostVars
 from ansible.vars.manager import VariableManager
 from ansible.utils.display import Display
@@ -66,19 +67,22 @@ display = Display()
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class _Envelope:
+    secrets: frozenset[str] | None = None
+    message: CallbackSend | DisplaySend | PromptSend | WireTaskResult
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class CallbackSend:
     method_name: str
     wire_task_result: WireTaskResult
-    # SDFIX: implement
-    new_secrets: set[str] | None = None
 
 
 class DisplaySend:
-    def __init__(self, method, *args, new_secrets: set[str] | None = None, **kwargs):
+    def __init__(self, method, *args, **kwargs):
         self.method = method
         self.args = args
         self.kwargs = kwargs
-        self.new_secrets = new_secrets
 
 
 @dataclasses.dataclass
@@ -96,17 +100,30 @@ class FinalQueue(multiprocessing.queues.SimpleQueue):
         kwargs['ctx'] = multiprocessing_context
         super().__init__(*args, **kwargs)
 
+    def put(self, obj):
+        super().put(
+            _Envelope(
+                secrets=tc.flush_new_secrets() if (tc := TaskContext.current(optional=True)) else None,
+                message=obj
+            ),
+        )
+
+    def get(self):
+        envelope = super().get()
+        # SDFIX: use a multi-register mode
+        for s in envelope.secrets or []:
+            register_secret(s)
+        return envelope.message
+
     def send_callback(self, method_name: str, host: Host, task: Task, utr: UnifiedTaskResult) -> None:
-        # SDFIX: implement pending secret send here (utr should have it, but ideally should reset tracker)
         self.put(CallbackSend(method_name=method_name, wire_task_result=WireTaskResult.create(host=host, task=task, utr=utr)))
 
     def send_task_result(self, host: Host, task: Task, utr: UnifiedTaskResult) -> None:
         self.put(WireTaskResult.create(host=host, task=task, utr=utr))
 
-    def send_display(self, method, *args, new_secrets: set[str] | None = None, **kwargs):
+    def send_display(self, method, *args, **kwargs):
         self.put(
-            # SDFIX: make this sampling reset the secret tracker
-            DisplaySend(method, *args, new_secrets=new_secrets, **kwargs),
+            DisplaySend(method, *args, **kwargs),
         )
 
     def send_prompt(self, **kwargs):

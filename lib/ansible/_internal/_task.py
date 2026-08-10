@@ -19,6 +19,7 @@ from ansible.errors import AnsibleError, AnsibleTemplateError
 from ansible.module_utils._internal._ambient_context import AmbientContextBase
 from ansible.module_utils._internal import _dataclass_validation, _event_utils, _messages, _secrets, _traceback
 from ansible.module_utils.datatag import native_type_name, deprecator_from_collection_name, deprecate_value
+from ansible.module_utils.secrets import register_secret
 from ansible.parsing import vault as _vault
 from ansible.template import trust_as_template
 from ansible.utils.display import Display
@@ -194,6 +195,9 @@ class TaskContext(AmbientContextBase):
     _break_when_triggered: bool = False
     _inventory_rpc_client: _inventory_rpc.InventoryRPC | None = None
     _new_secrets: _secrets.NewSecretTracker = dataclasses.field(default_factory=_secrets._secret_masker.track_new_secrets)
+
+    def flush_new_secrets(self) -> frozenset[str]:
+        return self._new_secrets.flush()
 
     pending_changes: PendingChanges | None = None
     """Pending changes which will be applied only if the current task succeeds."""
@@ -869,10 +873,6 @@ class UnifiedTaskResult:
     registered_values: c.Mapping[str, object] | None = None
     """Values to register unconditionally, including on failure or when skipped."""
 
-    # SDFIX: move elsewhere for use on both callback dispatch and results
-    # SDFIX: set vs list
-    new_secrets: list[str] | None = dataclasses.field(default=None, metadata=import_export("_ansible_new_secrets", source=Source.ANY, destination=Destination.CALLBACK))
-
     skip_reason: str | None = dataclasses.field(default=None, metadata=export_only())
     skipped_reason: str | None = dataclasses.field(default=None, metadata=export_only())
     """The `skipped_reason` field is deprecated. Use `skip_reason` instead."""
@@ -940,6 +940,11 @@ class UnifiedTaskResult:
     def _from_result_dict(cls, result: dict[str, object], source_is_module: bool) -> t.Self:
         if not isinstance(result, dict):
             raise TypeError(f'Malformed result. Received {type(result)} instead of {dict}.')
+
+        if source_is_module and (new_secrets := result.pop('_ansible_new_secrets', None)):
+            # SDFIX: use a multi-register mode
+            for s in new_secrets:
+                register_secret(s)
 
         fields = cls.get_result_key_to_resolved_field_mapping(source_is_module=source_is_module)
         result_data: dict[str, object] = {}
@@ -1161,10 +1166,6 @@ class UnifiedTaskResult:
             )
         else:
             self.exception = None
-
-        # SDFIX: find a better place for this; sync to controller on both callback dispatch and result/error
-        if (tc := TaskContext.current(optional=True)) and tc._new_secrets._new_secrets:
-            self.new_secrets = tc._new_secrets._new_secrets
 
     @classmethod
     def from_module_result_dict(cls, result: dict[str, object]) -> t.Self:
