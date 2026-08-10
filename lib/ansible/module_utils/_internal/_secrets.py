@@ -13,9 +13,10 @@ import ahocorasick
 #from ansible.module_utils._internal import _ahocorasick as ahocorasick
 
 
-class SecretMasker:
-    _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
+_emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
 
+
+class SecretMasker:
     def __init__(self):
         self._store = ahocorasick.Automaton()
         self._new_secret_trackers: set[NewSecretTracker] = set()
@@ -77,10 +78,10 @@ class SecretMasker:
         with self._lock:
             # SDFIX: optimize for the most likely case of "no secrets"- sniff iterator for >0 value before creating an empty frozenset
             if not value:
-                return self._emptyfrozenset
+                return _emptyfrozenset
 
             if self._store.kind == ahocorasick.EMPTY:
-                return self._emptyfrozenset
+                return _emptyfrozenset
 
             if self._store.kind != ahocorasick.AHOCORASICK:
                 self._store.make_automaton()
@@ -88,7 +89,7 @@ class SecretMasker:
             try:
                 return frozenset(value[e - l + 1:e + 1] for e, l in self._store.iter_long(value))
             except TypeError:
-                return self._emptyfrozenset
+                return _emptyfrozenset
 
 
 # usage contexts:
@@ -109,10 +110,10 @@ class NewSecretTracker:
         if self in self._masker._new_secret_trackers:
             self._masker._new_secret_trackers.remove(self)
 
-    def flush(self) -> set[str] | None:
+    def flush(self) -> frozenset[str]:
         if not self._new_secrets:
-            return None
-        flushed = self._new_secrets
+            return _emptyfrozenset
+        flushed = frozenset(self._new_secrets)
         self._new_secrets = set()
         return flushed
 

@@ -67,9 +67,9 @@ display = Display()
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class Envelope:
-    secrets: set[str] | None = None
-    message: object
+class _Envelope:
+    secrets: frozenset[str] | None = None
+    message: CallbackSend | DisplaySend | PromptSend | WireTaskResult
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -102,7 +102,7 @@ class FinalQueue(multiprocessing.queues.SimpleQueue):
 
     def put(self, obj):
         super().put(
-            Envelope(
+            _Envelope(
                 secrets=tc.flush_new_secrets() if (tc := TaskContext.current(optional=True)) else None,
                 message=obj
             ),

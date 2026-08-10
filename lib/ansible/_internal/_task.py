@@ -196,7 +196,7 @@ class TaskContext(AmbientContextBase):
     _inventory_rpc_client: _inventory_rpc.InventoryRPC | None = None
     _new_secrets: _secrets.NewSecretTracker = dataclasses.field(default_factory=_secrets._secret_masker.track_new_secrets)
 
-    def flush_new_secrets(self) -> set[str] | None:
+    def flush_new_secrets(self) -> frozenset[str]:
         return self._new_secrets.flush()
 
     pending_changes: PendingChanges | None = None
