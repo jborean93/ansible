@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import io
-import threading
+
+from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
 
 # SDFIX: abstraction/detection of vendored/pure-Python vs C-accelerated, and/or controller vs module
 # SDFIX: what about non-Python modules?
@@ -11,14 +12,14 @@ import ahocorasick
 #except ImportError:
 #from ansible.module_utils._internal import _ahocorasick as ahocorasick
 
-# SDFIX: use fork-blocking lock and replace post-fork
 
 class SecretMasker:
     _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
+
     def __init__(self):
         self._store = ahocorasick.Automaton()
         self._new_secret_trackers: set[NewSecretTracker] = set()
-        self._lock = threading.Lock()
+        self._lock = ForkSafeLock()
 
     def track_new_secrets(self) -> NewSecretTracker:
         self._new_secret_trackers.add(st := NewSecretTracker(self))
@@ -97,6 +98,7 @@ class SecretMasker:
 # ansible-connection stub (special case of controller spawned worker, scanned-from-args, no delta needed?)
 # Python module process (init scanned-from-args, track delta with bulk return (until we support streaming responses, then opportunistic control plane updates)
 # Windows/other module process (init scanned-from-args, impl TBD)
+
 
 class NewSecretTracker:
     def __init__(self, masker: SecretMasker):
