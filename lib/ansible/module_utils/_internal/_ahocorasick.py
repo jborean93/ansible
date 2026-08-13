@@ -2,10 +2,8 @@
 
 ``iter_long`` implements leftmost-longest, non-overlapping matching to match the
 C extension. For every registered word of length >= 2 it produces exactly the
-matches the C library does; results agree for realistic secret lengths. Words of
-length 1 can behave differently in pathological overlapping cases (a length-1
-word matched as the suffix of a longer word leaves the automaton on the longer
-path), which is why secret registration is expected to enforce a minimum length.
+matches the C library does; As such, minimum secret length >= 2 must be enforced.
+Brea
 """
 
 from __future__ import annotations
@@ -20,7 +18,8 @@ TRIE = 1
 AHOCORASICK = 2
 
 
-@dataclass(slots=True)
+# deprecated: description='use @dataclass(slots=True) for smaller nodes' python_version='3.9'
+@dataclass
 class _ACNode:
     """A single trie/automaton state."""
 
@@ -44,13 +43,10 @@ class _Candidate(NamedTuple):
 
 
 class Automaton:
-    """Minimal drop-in for ``ahocorasick.Automaton``.
+    """Minimal drop-in for C extension ``ahocorasick.Automaton``"""
 
-    The constructor ignores the C extension's ``value_type``/``key_type`` args.
-    """
-
-    # TODO: Add _MINIMUM_LENGTH/get it from somewhere
     def __init__(self, *args, **kwargs):
+        """The constructor ignores the C extension's ``value_type``/``key_type`` args."""
         self._root = _ACNode()
         self._word_count = 0
         self.kind = EMPTY
@@ -141,7 +137,6 @@ class Automaton:
         state = root
         i = 0
 
-        # Best-so-far uncommitted match; None while seeking.
         candidate: _Candidate | None = None
 
         while i < len(string):

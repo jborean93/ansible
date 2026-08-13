@@ -1,0 +1,61 @@
+{
+  "_comment": "Documented length-1 divergence: pure-Python iter_long differs from the C extension. Records both outputs. Not run against the C extension.",
+  "cases": [
+    {
+      "name": "length-1 tail lost at end of input",
+      "words": {
+        "a": 1,
+        "aaa": 3
+      },
+      "input": "aa",
+      "pure_python": [
+        [
+          0,
+          1
+        ]
+      ],
+      "c_extension": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "length-1 tail lost in a longer run",
+      "words": {
+        "a": 1,
+        "aaa": 3
+      },
+      "input": "aaaaa",
+      "pure_python": [
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "c_extension": [
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ]
+    }
+  ]
+}
