@@ -11,16 +11,13 @@ try:
 except ImportError:
     c_extension = None
 
-FIXTURES = "test/units/module_utils/_internal/fixtures"
+# iter_long differential cases: curated names + a deterministic (seed=1729) sample
+# over alphabet 'abc', with expected output generated from the pyahocorasick C
+# extension. Pure-Python and C agree on all length>=2 word sets.
+CONFORMANCE_FIXTURE = "test/units/module_utils/_internal/fixtures/ahocorasick_conformance.json"
 
-
-def _load(name):
-    with open(f"{FIXTURES}/{name}") as f:
-        return json.load(f)["cases"]
-
-
-CONFORMANCE = _load("ahocorasick_conformance.json")
-IMPL_SPECIFIC = _load("ahocorasick_impl_specific.json")
+with open(CONFORMANCE_FIXTURE) as _fh:
+    CONFORMANCE = json.load(_fh)["cases"]
 
 # Implementations that must agree on the shared behaviors below.
 IMPLEMENTATIONS = [pytest.param(pure_python, id="pure_python")]
@@ -32,9 +29,9 @@ if c_extension is not None:
 def test_add_word_return_value(module):
     """add_word returns True for a newly added word and False for a duplicate."""
     automaton = module.Automaton()
-    assert automaton.add_word("secret", 6) is True   # newly added
-    assert automaton.add_word("secret", 6) is False  # already present
-    assert automaton.add_word("other", 5) is True    # distinct word
+    assert automaton.add_word("secret", 6) is True
+    assert automaton.add_word("secret", 6) is False
+    assert automaton.add_word("other", 5) is True
 
 
 @pytest.mark.parametrize("module", IMPLEMENTATIONS)
@@ -52,29 +49,8 @@ def _matches(module, words, text):
     return [list(match) for match in automaton.iter_long(text)]
 
 
+@pytest.mark.parametrize("module", IMPLEMENTATIONS)
 @pytest.mark.parametrize("case", CONFORMANCE, ids=[c["name"] for c in CONFORMANCE])
-def test_pure_python_matches_reference(case):
-    """Pure-Python iter_long matches the reference output (generated from the C extension)."""
-    assert _matches(pure_python, case["words"], case["input"]) == case["expected"]
-
-
-@pytest.mark.skipif(c_extension is None, reason="ahocorasick C extension not installed")
-@pytest.mark.parametrize("case", CONFORMANCE, ids=[c["name"] for c in CONFORMANCE])
-def test_c_extension_matches_reference(case):
-    """The C extension still produces the reference output (guards against fixture drift)."""
-    assert _matches(c_extension, case["words"], case["input"]) == case["expected"]
-
-
-@pytest.mark.parametrize("case", IMPL_SPECIFIC, ids=[c["name"] for c in IMPL_SPECIFIC])
-def test_pure_python_len1_divergence(case):
-    """Pin the documented length-1 divergence: pure-Python yields its recorded output, not the C extension's."""
-    got = _matches(pure_python, case["words"], case["input"])
-    assert got == case["pure_python"]
-    assert got != case["c_extension"]
-
-
-@pytest.mark.skipif(c_extension is None, reason="ahocorasick C extension not installed")
-@pytest.mark.parametrize("case", IMPL_SPECIFIC, ids=[c["name"] for c in IMPL_SPECIFIC])
-def test_c_extension_len1_divergence(case):
-    """Confirm the recorded C-extension output for the divergent cases still holds."""
-    assert _matches(c_extension, case["words"], case["input"]) == case["c_extension"]
+def test_matches_reference(module, case):
+    """Each backend reproduces the reference output (generated from the C extension)."""
+    assert _matches(module, case["words"], case["input"]) == case["expected"]

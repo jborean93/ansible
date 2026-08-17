@@ -1,16 +1,17 @@
-"""Pure-Python Aho-Corasick automaton covering only the API surface area we use
+"""Pure-Python Aho-Corasick automaton covering only the API surface area we use.
 
 ``iter_long`` implements leftmost-longest, non-overlapping matching to match the
 C extension. For every registered word of length >= 2 it produces exactly the
-matches the C library does; As such, minimum secret length >= 2 must be enforced.
-Brea
+matches the C library does; the two diverge only for length-1 words (see
+``iter_long``), so callers that need parity must enforce a minimum word length.
 """
 
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import NamedTuple
+
 
 # Module-level "kind" constants, mimicking the C extension (``ahocorasick.EMPTY``).
 EMPTY = 0
@@ -24,17 +25,19 @@ class _ACNode:
     """A single trie/automaton state."""
 
     children: dict = field(default_factory=dict)
-    fail: "_ACNode | None" = None
+    fail: _ACNode | None = None
     depth: int = 0
     is_word: bool = False
     value: object = None
 
     # Node ending the longest word that ends here (self or an inherited suffix;
     # None if none). Its .depth is the word length, .value what iter_long yields.
-    word_node: "_ACNode | None" = None
+    word_node: _ACNode | None = None
 
 
-class _Candidate(NamedTuple):
+# deprecated: description='use @dataclass(frozen=True, slots=True) for smaller candidates' python_version='3.9'
+@dataclass(frozen=True)
+class _Candidate:
     """A best-so-far, uncommitted ``iter_long`` match."""
 
     start: int
@@ -120,8 +123,11 @@ class Automaton:
 
         self.kind = AHOCORASICK if self._word_count else EMPTY
 
-    def iter_long(self, string: str):
+    def iter_long(self, string: str) -> Iterable[tuple[int, object]]:
         """Yield ``(end_index, value)`` for leftmost-longest, non-overlapping matches.
+
+        Diverges from the C extension only for length-1 words: {"a", "aaa"} on "aa"
+        yields [(0, 1)] with python vs [(0, 1), (1, 1)] with C.
 
         ``end_index`` is the final character's index; ``value`` is what was
         stored for the word via ``add_word``. Invariants (do not "simplify" away):
