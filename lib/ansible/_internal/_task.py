@@ -19,7 +19,7 @@ from ansible.errors import AnsibleError, AnsibleTemplateError
 from ansible.module_utils._internal._ambient_context import AmbientContextBase
 from ansible.module_utils._internal import _dataclass_validation, _event_utils, _messages, _secrets, _traceback
 from ansible.module_utils.datatag import native_type_name, deprecator_from_collection_name, deprecate_value
-from ansible.module_utils.secrets import register_secret
+from ansible.module_utils.secrets import register_secrets
 from ansible.parsing import vault as _vault
 from ansible.template import trust_as_template
 from ansible.utils.display import Display
@@ -942,9 +942,7 @@ class UnifiedTaskResult:
             raise TypeError(f'Malformed result. Received {type(result)} instead of {dict}.')
 
         if source_is_module and (new_secrets := result.pop('_ansible_new_secrets', None)):
-            # SDFIX: use a multi-register mode
-            for s in new_secrets:
-                register_secret(s)
+            register_secrets(new_secrets)
 
         fields = cls.get_result_key_to_resolved_field_mapping(source_is_module=source_is_module)
         result_data: dict[str, object] = {}
