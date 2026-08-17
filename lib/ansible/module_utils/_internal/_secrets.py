@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing as _t
+
 from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
 
 # SDFIX: abstraction/detection of vendored/pure-Python vs C-accelerated, and/or controller vs module
@@ -46,7 +48,19 @@ class SecretMasker:
 
             return secret
 
-    # FIXME: multi-register operation?
+    def register_secret_texts(self, secrets: _t.Iterable[str]) -> None:
+        with self._lock:
+            new = set()
+
+            for secret in secrets:
+                # SDFIX: silently skip too-short secrets for now; source the threshold from config.
+                if len(secret) < _MINIMUM_SECRET_LENGTH or self._store.exists(secret):
+                    continue
+                self._store.add_word(secret, len(secret))
+                new.add(secret)
+
+            for tracker in self._new_secret_trackers:
+                tracker._new_secrets.update(new)
 
     def mask_string(self, value: str, *, mask_placeholder: str = '<secret>') -> str:
         if not value:
