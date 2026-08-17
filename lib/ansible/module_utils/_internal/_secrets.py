@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-
 from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
 
 # SDFIX: abstraction/detection of vendored/pure-Python vs C-accelerated, and/or controller vs module
@@ -46,40 +44,40 @@ class SecretMasker:
     # FIXME: multi-register operation?
 
     def mask_string(self, value: str, *, mask_placeholder: str = '<secret>') -> str:
+        if not value:
+            return value
+
         with self._lock:
             if self._store.kind == ahocorasick.EMPTY:
                 # noop - no secrets registered
                 return value
 
-            if built := (self._store.kind != ahocorasick.AHOCORASICK):
+            if self._store.kind != ahocorasick.AHOCORASICK:
                 self._store.make_automaton()
 
             # iter_long masks the longest
             found = [(end - length + 1, end + 1) for end, length in self._store.iter_long(value)]
 
-            if not found:
-                return value
+        if not found:
+            return value
 
-            # FIXME: gap buffer, preallocation, something
-            value_pos = 0
-            out_buf = io.StringIO()
+        parts = []
+        value_pos = 0
 
-            for start, end in found:
-                out_buf.write(value[value_pos:start])
-                out_buf.write(mask_placeholder)
-                value_pos = end
+        for start, end in found:
+            parts.append(value[value_pos:start])
+            parts.append(mask_placeholder)
+            value_pos = end
 
-            out_buf.write(value[value_pos:])
+        parts.append(value[value_pos:])
 
-            return out_buf.getvalue()
-            #return "REBUILT: " if built else "" + out_buf.getvalue()
+        return ''.join(parts)
 
     def secrets_in(self, value: object) -> frozenset[str]:
-        with self._lock:
-            # SDFIX: optimize for the most likely case of "no secrets"- sniff iterator for >0 value before creating an empty frozenset
-            if not value:
-                return _emptyfrozenset
+        if not value:
+            return _emptyfrozenset
 
+        with self._lock:
             if self._store.kind == ahocorasick.EMPTY:
                 return _emptyfrozenset
 
@@ -87,9 +85,14 @@ class SecretMasker:
                 self._store.make_automaton()
 
             try:
-                return frozenset(value[e - l + 1:e + 1] for e, l in self._store.iter_long(value))
+                found = list(self._store.iter_long(value))
             except TypeError:
                 return _emptyfrozenset
+
+        if not found:
+            return _emptyfrozenset
+
+        return frozenset(value[e - l + 1 : e + 1] for e, l in found)
 
 
 # usage contexts:
