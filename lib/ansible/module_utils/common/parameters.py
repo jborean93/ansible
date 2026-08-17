@@ -26,7 +26,6 @@ from ansible.module_utils._internal._datatag import AnsibleSerializable, Ansible
 from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
 from ansible.module_utils.common.warnings import warn
 from ansible.module_utils.datatag import native_type_name
-from ansible.module_utils import secrets
 from ansible.module_utils.errors import (
     AliasError,
     AnsibleFallbackNotFound,
@@ -63,6 +62,7 @@ from ansible.module_utils.common.validation import (
     check_type_raw,
     check_type_str,
 )
+from ansible.module_utils.common.warnings import deprecate as _deprecate
 
 # Python2 & 3 way to get NoneType
 NoneType = type(None)
@@ -371,6 +371,97 @@ def _return_datastructure_name(obj):
         yield to_native(obj, nonstring='simplerepr')
     else:
         raise TypeError('Unknown parameter type: %s' % (type(obj)))
+
+
+def _remove_values_conditions(value, no_log_strings, deferred_removals):
+    """
+    Helper function for :meth:`remove_values`.
+
+    :arg value: The value to check for strings that need to be stripped
+    :arg no_log_strings: set of strings which must be stripped out of any values
+    :arg deferred_removals: List which holds information about nested
+        containers that have to be iterated for removals.  It is passed into
+        this function so that more entries can be added to it if value is
+        a container type.  The format of each entry is a 2-tuple where the first
+        element is the ``value`` parameter and the second value is a new
+        container to copy the elements of ``value`` into once iterated.
+
+    :returns: if ``value`` is a scalar, returns ``value`` with two exceptions:
+
+        1. :class:`~datetime.datetime` objects which are changed into a string representation.
+        2. objects which are in ``no_log_strings`` are replaced with a placeholder
+           so that no sensitive data is leaked.
+
+        If ``value`` is a container type, returns a new empty container.
+
+    ``deferred_removals`` is added to as a side-effect of this function.
+
+    .. warning:: It is up to the caller to make sure the order in which value
+        is passed in is correct.  For instance, higher level containers need
+        to be passed in before lower level containers. For example, given
+        ``{'level1': {'level2': 'level3': [True]} }`` first pass in the
+        dictionary for ``level1``, then the dict for ``level2``, and finally
+        the list for ``level3``.
+    """
+    original_value = value
+
+    if isinstance(value, (str, bytes)):
+        # Need native str type
+        native_str_value = value
+        if isinstance(value, str):
+            value_is_text = True
+        elif isinstance(value, bytes):
+            value_is_text = False
+            native_str_value = to_text(value, errors='surrogate_or_strict')
+
+        if native_str_value in no_log_strings:
+            return 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
+        for omit_me in no_log_strings:
+            native_str_value = native_str_value.replace(omit_me, '*' * 8)
+
+        if value_is_text and isinstance(native_str_value, bytes):
+            value = to_text(native_str_value, encoding='utf-8', errors='surrogate_then_replace')
+        elif not value_is_text and isinstance(native_str_value, str):
+            value = to_bytes(native_str_value, encoding='utf-8', errors='surrogate_then_replace')
+        else:
+            value = native_str_value
+
+    elif value is True or value is False or value is None:
+        return value
+
+    elif isinstance(value, Sequence):
+        new_value = AnsibleTagHelper.tag_copy(original_value, [])
+        deferred_removals.append((value, new_value))
+        return new_value
+
+    elif isinstance(value, Set):
+        new_value = AnsibleTagHelper.tag_copy(original_value, set())
+        deferred_removals.append((value, new_value))
+        return new_value
+
+    elif isinstance(value, Mapping):
+        new_value = AnsibleTagHelper.tag_copy(original_value, {})
+        deferred_removals.append((value, new_value))
+        return new_value
+
+    elif isinstance(value, (int, float)):
+        stringy_value = to_native(value, encoding='utf-8', errors='surrogate_or_strict')
+        if stringy_value in no_log_strings:
+            return 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
+        for omit_me in no_log_strings:
+            if omit_me in stringy_value:
+                return 'VALUE_SPECIFIED_IN_NO_LOG_PARAMETER'
+
+    elif isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value
+    elif isinstance(value, AnsibleSerializable):
+        return value
+    else:
+        raise TypeError('Value of unknown type: %s, %s' % (type(value), value))
+
+    value = AnsibleTagHelper.tag_copy(original_value, value)
+
+    return value
 
 
 def _set_defaults(argument_spec, parameters, set_default=True):
@@ -760,6 +851,99 @@ def set_fallbacks(argument_spec, parameters):
                 parameters[param] = fallback_value
 
     return no_log_values
+
+
+def sanitize_keys(obj, no_log_strings, ignore_keys=frozenset()):
+    """Sanitize the keys in a container object by removing ``no_log`` values from key names.
+
+    This is a companion function to the :func:`remove_values` function. Similar to that function,
+    we make use of ``deferred_removals`` to avoid hitting maximum recursion depth in cases of
+    large data structures.
+
+    :arg obj: The container object to sanitize. Non-container objects are returned unmodified.
+    :arg no_log_strings: A set of string values we do not want logged.
+    :kwarg ignore_keys: A set of string values of keys to not sanitize.
+
+    :returns: An object with sanitized keys.
+    """
+    # TODO remove helper functions when removing this function
+    _deprecate(
+        msg="The `sanitize_keys()` function from `ansible.module_utils.common.parameters` is deprecated.",
+        version="2.25",
+        help_text="Secret values are now masked automatically. Use functions from `ansible.module_utils.secrets` if you need to handle secrets manually.",
+    )
+
+    deferred_removals = deque()
+
+    # sort ensuring we always handle longer strings vs subsets
+    no_log_strings = sorted([to_native(s, errors='surrogate_or_strict') for s in no_log_strings], key=len, reverse=True)
+    new_value = _sanitize_keys_conditions(obj, deferred_removals)
+
+    while deferred_removals:
+        old_data, new_data = deferred_removals.popleft()
+
+        if isinstance(new_data, Mapping):
+            for old_key, old_elem in old_data.items():
+                if old_key in ignore_keys or old_key.startswith('_ansible'):
+                    new_data[old_key] = _sanitize_keys_conditions(old_elem, deferred_removals)
+                else:
+                    # Sanitize the old key. We take advantage of the sanitizing code in
+                    # _remove_values_conditions() rather than recreating it here.
+                    new_key = _remove_values_conditions(old_key, no_log_strings, None)
+                    new_data[new_key] = _sanitize_keys_conditions(old_elem, deferred_removals)
+        else:
+            for elem in old_data:
+                new_elem = _sanitize_keys_conditions(elem, deferred_removals)
+                if isinstance(new_data, MutableSequence):
+                    new_data.append(new_elem)
+                elif isinstance(new_data, MutableSet):
+                    new_data.add(new_elem)
+                else:
+                    raise TypeError('Unknown container type encountered when removing private values from keys')
+
+    return new_value
+
+
+def remove_values(value, no_log_strings):
+    """Remove strings in ``no_log_strings`` from value.
+
+    If value is a container type, then remove a lot more.
+
+    Use of ``deferred_removals`` exists, rather than a pure recursive solution,
+    because of the potential to hit the maximum recursion depth when dealing with
+    large amounts of data (see `issue #24560 <https://github.com/ansible/ansible/issues/24560>`_).
+    """
+    # TODO remove helper functions when removing this function
+    _deprecate(
+        msg="The `remove_values()` function from `ansible.module_utils.common.parameters` is deprecated.",
+        version="2.25",
+        help_text="Secret values are now masked automatically. Use functions from `ansible.module_utils.secrets` if you need to handle secrets manually.",
+    )
+
+    deferred_removals = deque()
+
+    # sort ensuring we always handle longer strings vs subsets
+    no_log_strings = sorted([to_native(s, errors='surrogate_or_strict') for s in no_log_strings], key=len, reverse=True)
+    new_value = _remove_values_conditions(value, no_log_strings, deferred_removals)
+
+    while deferred_removals:
+        old_data, new_data = deferred_removals.popleft()
+        if isinstance(new_data, Mapping):
+            for old_key, old_elem in old_data.items():
+                new_elem = _remove_values_conditions(old_elem, no_log_strings, deferred_removals)
+                new_data[old_key] = new_elem
+        else:
+            for elem in old_data:
+                new_elem = _remove_values_conditions(elem, no_log_strings, deferred_removals)
+                if isinstance(new_data, MutableSequence):
+                    new_data.append(new_elem)
+                elif isinstance(new_data, MutableSet):
+                    new_data.add(new_elem)
+                else:
+                    raise TypeError('Unknown container type encountered when removing private values from output')
+
+    return new_value
+
 
 def __getattr__(importable_name):
     return _no_six.deprecate(importable_name, __name__, "binary_type", "text_type", "integer_types", "string_types", "PY2", "PY3")
