@@ -82,6 +82,8 @@ class _LegacyVariableVisitor(_json.AnsibleVariableVisitor):
         elif value_type is _Untrusted:
             result = value.value
         else:
+            if self.sensitive_source_data and isinstance(value, (int, float)) and not isinstance(value, bool):
+                register_secret(value)
             result = _json._sentinel
 
         return result
