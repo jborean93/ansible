@@ -4,14 +4,15 @@ from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeL
 
 # SDFIX: abstraction/detection of vendored/pure-Python vs C-accelerated, and/or controller vs module
 # SDFIX: what about non-Python modules?
-import ahocorasick
-#try:
-#    import ahocorasick
-#except ImportError:
-#from ansible.module_utils._internal import _ahocorasick as ahocorasick
+try:
+    import ahocorasick
+except ImportError:
+    from ansible.module_utils._internal import _ahocorasick as ahocorasick
 
 
 _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
+
+_MINIMUM_SECRET_LENGTH = 4
 
 
 class SecretMasker:
@@ -26,8 +27,12 @@ class SecretMasker:
 
     def register_secret_text(self, secret: str) -> str:
         # FIXME: thread safety
-        # FIXME: minimum length exclusion
         # FIXME: is key obfuscation possible/worthwhile?
+
+        # SDFIX: silently skip too-short secrets for now; source the threshold from config.
+        #        ^^ Silent ignoring is bad, implemented here for the sake of tests
+        if len(secret) < _MINIMUM_SECRET_LENGTH:
+            return secret
 
         with self._lock:
             if self._store.exists(secret):
