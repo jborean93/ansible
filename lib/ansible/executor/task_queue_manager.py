@@ -38,7 +38,7 @@ from ansible.executor.stats import AggregateStats
 from ansible.executor.task_result import CallbackTaskResult
 from ansible.inventory.manager import InventoryManager
 from ansible.module_utils.common.text.converters import to_native
-from ansible.module_utils.secrets import register_secret
+from ansible.module_utils.secrets import register_secrets
 from ansible.parsing.dataloader import DataLoader
 from ansible.playbook.play_context import PlayContext
 from ansible.playbook.task import Task
@@ -110,9 +110,8 @@ class FinalQueue(multiprocessing.queues.SimpleQueue):
 
     def get(self):
         envelope = super().get()
-        # SDFIX: use a multi-register mode
-        for s in envelope.secrets or []:
-            register_secret(s)
+        if envelope.secrets:
+            register_secrets(envelope.secrets)
         return envelope.message
 
     def send_callback(self, method_name: str, host: Host, task: Task, utr: UnifiedTaskResult) -> None:
