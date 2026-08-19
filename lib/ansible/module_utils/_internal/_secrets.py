@@ -77,30 +77,43 @@ class SecretMasker:
             for tracker in self._new_secret_trackers:
                 tracker._new_secrets.update(new)
 
-    def mask_string(self, value: str, *, mask_placeholder: str = '<secret>') -> str:
-        if not value:
-            return value
 
+    def _raw_spans(self, value: object) -> list[tuple[int, int]]:
+        """(start, end) positions of every registered secret found in value."""
         with self._lock:
             if self._store.kind == ahocorasick.EMPTY:
                 # noop - no secrets registered
-                return value
+                return []
 
             if self._store.kind != ahocorasick.AHOCORASICK:
                 self._store.make_automaton()
 
-            # iter_long masks the longest
-            found = [(end - length + 1, end + 1) for end, length in self._store.iter_long(value)]
+            try:
+                return [(end - length + 1, end + 1) for end, length in self._store.iter_long(value)]
+            except TypeError:
+                return []
 
-        if not found:
+    def _effective_spans(self, value: str) -> list[tuple[int, int]]:
+        """Spans to redact: long secrets always, short secrets only when at a word boundary.
+        """
+        return [
+            (start, end) for start, end in self._raw_spans(value)
+            if not _is_short_secret(end - start) or _sits_at_boundary(value, start, end)
+        ]
+
+    def mask_string(self, value: str, *, mask_placeholder: str = '<secret>') -> str:
+        if not value:
+            return value
+
+        spans = self._effective_spans(value)
+
+        if not spans:
             return value
 
         parts = []
         value_pos = 0
 
-        for start, end in found:
-            if _is_short_secret(end - start) and not _sits_at_boundary(value, start, end):
-                continue
+        for start, end in spans:
             parts.append(value[value_pos:start])
             parts.append(mask_placeholder)
             value_pos = end
@@ -110,25 +123,18 @@ class SecretMasker:
         return ''.join(parts)
 
     def secrets_in(self, value: object) -> frozenset[str]:
+        # Detection (not redaction): report every registered secret present, including short
+        # ones not at a word boundary. This feeds secret propagation to child processes, which
+        # must learn about a secret to mask it even if it only appears at a boundary there.
         if not value:
             return _emptyfrozenset
 
-        with self._lock:
-            if self._store.kind == ahocorasick.EMPTY:
-                return _emptyfrozenset
+        spans = self._raw_spans(value)
 
-            if self._store.kind != ahocorasick.AHOCORASICK:
-                self._store.make_automaton()
-
-            try:
-                found = list(self._store.iter_long(value))
-            except TypeError:
-                return _emptyfrozenset
-
-        if not found:
+        if not spans:
             return _emptyfrozenset
 
-        return frozenset(value[e - l + 1 : e + 1] for e, l in found)
+        return frozenset(value[start:end] for start, end in spans)
 
 
 # usage contexts:
