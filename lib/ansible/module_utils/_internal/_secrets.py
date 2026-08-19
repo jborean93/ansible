@@ -31,7 +31,7 @@ def _is_short_secret(length: int) -> bool:
     return _MINIMUM_SECRET_LENGTH <= length < _MAXIMUM_SHORT_SECRET_LENGTH
 
 
-def _sits_at_boundary(self, value: str, start: int, end: int):
+def _sits_at_boundary(value: str, start: int, end: int):
     at_beginning = start == 0
     at_end = end == len(value)
     boundary_left = at_beginning or _WORD_BOUNDARY_RE.match(value[start - 1]) is not None
