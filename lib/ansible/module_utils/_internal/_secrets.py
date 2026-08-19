@@ -4,8 +4,6 @@ import typing as _t
 
 from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
 
-# SDFIX: abstraction/detection of vendored/pure-Python vs C-accelerated, and/or controller vs module
-# SDFIX: what about non-Python modules?
 try:
     import ahocorasick
 except ImportError:
@@ -28,11 +26,6 @@ class SecretMasker:
         return st
 
     def register_secret_text(self, secret: str) -> str:
-        # FIXME: thread safety
-        # FIXME: is key obfuscation possible/worthwhile?
-
-        # SDFIX: silently skip too-short secrets for now; source the threshold from config.
-        #        ^^ Silent ignoring is bad, implemented here for the sake of tests
         if len(secret) < _MINIMUM_SECRET_LENGTH:
             return secret
 

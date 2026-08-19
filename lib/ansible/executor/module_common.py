@@ -1374,7 +1374,6 @@ def _find_module_utils(
             rlimit_nofile=rlimit_nofile,
             params=encoded_params,
             extensions=extension_manager.get_extensions(),
-            # SDFIX: this is kinda cheating, but much faster than intercepting during string serialization
             secrets=_secrets._secret_masker.secrets_in(encoded_params),
             zip_data=to_text(cached_module.zip_data),
         )
