@@ -28,7 +28,7 @@ class _ACNode:
     __slots__ = ("children", "fail", "depth", "is_word", "value", "word_node")
 
     def __init__(self, depth: int = 0) -> None:
-        self.children: dict = {}
+        self.children: dict[str, _ACNode] = {}
         self.fail: _ACNode | None = None
         self.depth = depth
         self.is_word = False
@@ -53,7 +53,7 @@ class _Candidate:
 class Automaton:
     """Minimal drop-in for C extension ``ahocorasick.Automaton``"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         """The constructor ignores the C extension's ``value_type``/``key_type`` args."""
         self._root = _ACNode()
         self._word_count = 0
