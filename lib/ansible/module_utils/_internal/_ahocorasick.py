@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-
+from dataclasses import dataclass
 
 # Module-level "kind" constants, mimicking the C extension (``ahocorasick.EMPTY``).
 EMPTY = 0
@@ -19,26 +18,32 @@ TRIE = 1
 AHOCORASICK = 2
 
 
-# deprecated: description='use @dataclass(slots=True) for smaller nodes' python_version='3.9'
-@dataclass
+# deprecated: description='switch to a proper dataclass' python_version='3.9'
 class _ACNode:
-    """A single trie/automaton state."""
+    """A single trie/automaton state
 
-    children: dict = field(default_factory=dict)
-    fail: _ACNode | None = None
-    depth: int = 0
-    is_word: bool = False
-    value: object = None
+    Uses a bare class with manual __slots__ because using default values
+    breaks a __slots__ declaration on a dataclass."""
 
-    # Node ending the longest word that ends here (self or an inherited suffix;
-    # None if none). Its .depth is the word length, .value what iter_long yields.
-    word_node: _ACNode | None = None
+    __slots__ = ("children", "fail", "depth", "is_word", "value", "word_node")
+
+    def __init__(self, depth: int = 0) -> None:
+        self.children: dict[str, _ACNode] = {}
+        self.fail: _ACNode | None = None
+        self.depth = depth
+        self.is_word = False
+        self.value: object = None
+        # Node ending the longest word that ends here (self or an inherited suffix;
+        # None if none). Its .depth is the word length, .value what iter_long yields.
+        self.word_node: _ACNode | None = None
 
 
-# deprecated: description='use @dataclass(frozen=True, slots=True) for smaller candidates' python_version='3.9'
+# deprecated: description='add slots=True' python_version='3.9'
 @dataclass(frozen=True)
 class _Candidate:
     """A best-so-far, uncommitted ``iter_long`` match."""
+
+    __slots__ = ("start", "end", "value")
 
     start: int
     end: int
@@ -48,7 +53,7 @@ class _Candidate:
 class Automaton:
     """Minimal drop-in for C extension ``ahocorasick.Automaton``"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         """The constructor ignores the C extension's ``value_type``/``key_type`` args."""
         self._root = _ACNode()
         self._word_count = 0
@@ -100,7 +105,7 @@ class Automaton:
         root = self._root
         root.fail = root
 
-        queue = deque()
+        queue: deque[_ACNode] = deque()
         for child in root.children.values():
             child.fail = root
             queue.append(child)
