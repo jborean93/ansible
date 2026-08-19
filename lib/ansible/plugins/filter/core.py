@@ -53,10 +53,8 @@ def register_secret(secret: str) -> str:
     if not isinstance(secret, str):
         raise ValueError("Secret must be a string")
 
-    # SDFIX: any easy trickery to de-template-ify this case once the secret is registered?
+    # FUTURE: any easy trickery to de-template-ify this case once the secret is registered?
     secrets.register_secret(secret)
-
-    # SDFIX: should this apply SensitiveData?
 
     return secret
 
