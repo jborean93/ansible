@@ -11,10 +11,11 @@ try:
 except ImportError:
     c_extension = None
 
-# Property corpus: (secrets, input, canaries), no expected-output string. The contract
-# is "no secret survives, canaries survive" -- not exact masked bytes -- so cases assert
-# those properties rather than a reference output.
-# SDFIX: should I check in the generate.py file?
+# Property corpus: each case registers secrets, masks an input, then asserts which
+# substrings must be absent and which must survive -- not exact masked bytes. Short
+# secrets (len in [_MINIMUM_SECRET_LENGTH, _MAXIMUM_SHORT_SECRET_LENGTH)) are only
+# masked when they sit at a word/string boundary, so a short secret can legitimately
+# appear in expect_present.
 CORPUS = "test/units/module_utils/_internal/fixtures/secret_masking_corpus.json"
 
 with open(CORPUS) as _fh:
@@ -39,16 +40,16 @@ def masker(request, monkeypatch):
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_masking_contract(masker, case):
-    """The masking contract, per case: no registered secret survives as a substring of the
-    output (safety), and every non-secret canary survives verbatim (anti-destruction).
+    """The masking contract, per case: every expect_absent substring must be masked out
+    (safety), and every expect_present substring must survive verbatim (anti-destruction).
     """
     for secret in case["secrets"]:
         masker.register_secret_text(secret)
     masked = masker.mask_string(case["input"], mask_placeholder=SENTINEL)
-    for secret in case["secrets"]:
-        assert secret not in masked, f"secret {secret!r} survived in {masked!r}"
-    for canary in case["canaries"]:
-        assert canary in masked, f"canary {canary!r} was destroyed in {masked!r}"
+    for absent in case["expect_absent"]:
+        assert absent not in masked, f"{absent!r} survived in {masked!r}"
+    for present in case["expect_present"]:
+        assert present in masked, f"{present!r} was destroyed in {masked!r}"
 
 
 def test_register_secret_text_is_idempotent(masker):
