@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import typing as _t
 
 from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
@@ -13,6 +14,27 @@ except ImportError:
 _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
 
 _MINIMUM_SECRET_LENGTH = 4
+_MAXIMUM_SHORT_SECRET_LENGTH = 6
+_WORD_BOUNDARY_RE = re.compile(r"\W")
+# FIXME: Maybe this could be configurable?  My intuition is that someone using short
+# secrets either has a specialized use case and might want to configure, or is doing
+# something stupid and should be forced to go the extra mile to make ansible behave
+# how they want.
+
+
+def _is_short_secret(length: int) -> bool:
+    """A short secret is masked only when it sits at a word boundary. Its length falls in
+    [_MINIMUM_SECRET_LENGTH, _MAXIMUM_SHORT_SECRET_LENGTH); longer secrets are always masked.
+    """
+    return _MINIMUM_SECRET_LENGTH <= length < _MAXIMUM_SHORT_SECRET_LENGTH
+
+
+def _sits_at_boundary(self, value: str, start: int, end: int):
+    at_beginning = start == 0
+    at_end = end == len(value)
+    boundary_left = at_beginning or _WORD_BOUNDARY_RE.match(value[start - 1]) is not None
+    boundary_right = at_end or _WORD_BOUNDARY_RE.match(value[end]) is not None
+    return boundary_left and boundary_right
 
 
 class SecretMasker:
@@ -77,6 +99,8 @@ class SecretMasker:
         value_pos = 0
 
         for start, end in found:
+            if _is_short_secret(end - start) and not _sits_at_boundary(value, start, end):
+                continue
             parts.append(value[value_pos:start])
             parts.append(mask_placeholder)
             value_pos = end
