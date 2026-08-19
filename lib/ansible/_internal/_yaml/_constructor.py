@@ -72,7 +72,11 @@ class AnsibleInstrumentedConstructor(_BaseConstructor):
         # SDFIX: implement this inline with constructor hooks, add different mask modes (None, V-only, K/V, include/ignore sequence)
         if self._sensitive_source_data:
             # SDFIX: ick, we could do this in the str constructor if we had context to avoid dict keys, or just let it encrypt those too?
-            mapping.update({k: register_secret(v) for k, v in mapping.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)})
+            for k, v in mapping.items():
+                if isinstance(v, str):
+                    register_secret(v)
+                elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                    register_secret(str(v))
 
         # Now that the node is known to be a valid mapping, handle any duplicate keys.
         for key_node, _value_node in node.value:
@@ -159,7 +163,11 @@ class AnsibleInstrumentedConstructor(_BaseConstructor):
 
         if self._sensitive_source_data:
             # SDFIX: ick, we could do this in the str constructor if we had context to avoid dict keys, or just let it encrypt those too?
-            values = [register_secret(v) if isinstance(v, (str, int, float)) and not isinstance(v, bool) else v for v in values]
+            for v in values:
+                if isinstance(v, str):
+                    register_secret(v)
+                elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                    register_secret(str(v))
 
         data.extend(values)
 
