@@ -203,7 +203,7 @@ class ArgumentSpecValidator:
             })
 
         try:
-            bleh = [_secrets.register_secret(s) for s in _list_no_log_values(self.argument_spec, result._validated_parameters)]
+            _secrets.register_secrets(_list_no_log_values(self.argument_spec, result._validated_parameters))
         except TypeError as te:
             result.errors.append(NoLogError(to_native(te)))
 
