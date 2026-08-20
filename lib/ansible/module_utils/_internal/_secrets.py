@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import typing as _t
 
 from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeLock
@@ -15,25 +14,17 @@ _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization f
 
 _MINIMUM_SECRET_LENGTH = 4
 _MAXIMUM_SHORT_SECRET_LENGTH = 6
-_WORD_BOUNDARY_RE = re.compile(r"\W")
-# FIXME: Maybe this could be configurable?  My intuition is that someone using short
-# secrets either has a specialized use case and might want to configure, or is doing
-# something stupid and should be forced to go the extra mile to make ansible behave
-# how they want.
 
 
 def _is_short_secret(length: int) -> bool:
-    """A short secret is masked only when it sits at a word boundary. Its length falls in
-    [_MINIMUM_SECRET_LENGTH, _MAXIMUM_SHORT_SECRET_LENGTH); longer secrets are always masked.
-    """
     return _MINIMUM_SECRET_LENGTH <= length < _MAXIMUM_SHORT_SECRET_LENGTH
 
 
 def _sits_at_boundary(value: str, start: int, end: int):
     at_beginning = start == 0
     at_end = end == len(value)
-    boundary_left = at_beginning or _WORD_BOUNDARY_RE.match(value[start - 1]) is not None
-    boundary_right = at_end or _WORD_BOUNDARY_RE.match(value[end]) is not None
+    boundary_left = at_beginning or not value[start - 1].isalnum()
+    boundary_right = at_end or not value[end].isalnum()
     return boundary_left and boundary_right
 
 
@@ -94,8 +85,7 @@ class SecretMasker:
                 return []
 
     def _effective_spans(self, value: str) -> list[tuple[int, int]]:
-        """Spans to redact: long secrets always, short secrets only when at a word boundary.
-        """
+        """Spans to redact: long secrets always, short secrets only when at a word boundary."""
         return [
             (start, end) for start, end in self._raw_spans(value)
             if not _is_short_secret(end - start) or _sits_at_boundary(value, start, end)
@@ -123,9 +113,8 @@ class SecretMasker:
         return ''.join(parts)
 
     def secrets_in(self, value: object) -> frozenset[str]:
-        # Detection (not redaction): report every registered secret present, including short
-        # ones not at a word boundary. This feeds secret propagation to child processes, which
-        # must learn about a secret to mask it even if it only appears at a boundary there.
+        # Detection, not redaction: report every present secret (even short, non-boundary ones)
+        # so child processes learn about them and can mask them if they surface at a boundary there.
         if not value:
             return _emptyfrozenset
 

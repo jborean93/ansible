@@ -11,11 +11,8 @@ try:
 except ImportError:
     c_extension = None
 
-# Property corpus: each case registers secrets, masks an input, then asserts which
-# substrings must be absent and which must survive -- not exact masked bytes. Short
-# secrets (len in [_MINIMUM_SECRET_LENGTH, _MAXIMUM_SHORT_SECRET_LENGTH)) are only
-# masked when they sit at a word/string boundary, so a short secret can legitimately
-# appear in expect_present.
+# Corpus contract: each case asserts which substrings must be absent (masked) and which must
+# survive. Short secrets (4-5 chars) are masked only at a word boundary, so one can survive.
 CORPUS = "test/units/module_utils/_internal/fixtures/secret_masking_corpus.json"
 
 with open(CORPUS) as _fh:
@@ -24,8 +21,7 @@ with open(CORPUS) as _fh:
 SENTINEL = _CORPUS["sentinel"]
 CASES = _CORPUS["cases"]
 
-# Backends the masker must satisfy identically: the pure-Python fallback always,
-# the C extension when it is installed.
+# The masker must behave identically on both backends: pure-Python fallback and C extension.
 BACKENDS = [pytest.param(_ahocorasick, id="pure_python")]
 if c_extension is not None:
     BACKENDS.append(pytest.param(c_extension, id="c_extension"))
@@ -40,9 +36,7 @@ def masker(request, monkeypatch):
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_masking_contract(masker, case):
-    """The masking contract, per case: every expect_absent substring must be masked out
-    (safety), and every expect_present substring must survive verbatim (anti-destruction).
-    """
+    """Each case: every expect_absent substring is masked out; every expect_present survives verbatim."""
     for secret in case["secrets"]:
         masker.register_secret_text(secret)
     masked = masker.mask_string(case["input"], mask_placeholder=SENTINEL)
