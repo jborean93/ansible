@@ -14,15 +14,15 @@ except ImportError:
 
 _emptyfrozenset: frozenset[str] = frozenset()  # shared frozenset optimization for no secrets found
 
-_MINIMUM_SECRET_LENGTH = 4
-_MAXIMUM_SHORT_SECRET_LENGTH = 6
+_MINIMUM_SECRET_LENGTH = 4  # below this, not registered at all
+_ALWAYS_MASK_LENGTH = 6  # at/above this, mask unconditionally
 
 
 def _is_short_secret(length: int) -> bool:
-    return _MINIMUM_SECRET_LENGTH <= length < _MAXIMUM_SHORT_SECRET_LENGTH
+    return _MINIMUM_SECRET_LENGTH <= length < _ALWAYS_MASK_LENGTH
 
 
-def _sits_at_boundary(value: str, start: int, end: int):
+def _sits_at_boundary(value: str, start: int, end: int) -> bool:
     at_beginning = start == 0
     at_end = end == len(value)
     boundary_left = at_beginning or not value[start - 1].isalnum()
