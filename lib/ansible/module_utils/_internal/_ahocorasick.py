@@ -67,6 +67,8 @@ class Automaton:
         """
         if not word:
             return False
+        if not isinstance(word, str):
+            raise TypeError("string expected")
 
         node = self._root
         for ch in word:
@@ -87,6 +89,8 @@ class Automaton:
 
     def exists(self, word: str) -> bool:
         """Return ``True`` if ``word`` is registered."""
+        if not isinstance(word, str):
+            raise TypeError("string expected")
         node = self._root
         for ch in word:
             node = node.children.get(ch)
@@ -144,6 +148,9 @@ class Automaton:
            deeper than its word, so extending can surface a longer word starting
            before ``candidate.start``; a shorter suffix is ignored.
         """
+        if not isinstance(string, str):
+            raise TypeError("string required")
+
         root = self._root
         state = root
         i = 0
