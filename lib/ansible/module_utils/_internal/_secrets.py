@@ -76,20 +76,15 @@ class SecretMasker:
                 tracker._new_secrets.update(new)
 
 
-    def _raw_spans(self, value: object) -> list[tuple[int, int]]:
+    def _raw_spans(self, value: str) -> list[tuple[int, int]]:
         """(start, end) positions of every registered secret found in value."""
         with self._lock:
             if self._store.kind == ahocorasick.EMPTY:
                 # noop - no secrets registered
                 return []
-
             if self._store.kind != ahocorasick.AHOCORASICK:
                 self._store.make_automaton()
-
-            try:
-                return [(end - length + 1, end + 1) for end, length in self._store.iter_long(value)]
-            except TypeError:
-                return []
+            return [(end - length + 1, end + 1) for end, length in self._store.iter_long(value)]
 
     def _effective_spans(self, value: str) -> list[tuple[int, int]]:
         """Spans to redact: long secrets always, short secrets only when at a word boundary."""
@@ -119,7 +114,7 @@ class SecretMasker:
 
         return ''.join(parts)
 
-    def secrets_in(self, value: object) -> frozenset[str]:
+    def secrets_in(self, value: str) -> frozenset[str]:
         # Detection, not redaction: report every present secret (even short, non-boundary ones)
         # so child processes learn about them and can mask them if they surface at a boundary there.
         if not value:
