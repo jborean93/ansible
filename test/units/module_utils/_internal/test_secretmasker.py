@@ -11,10 +11,8 @@ try:
 except ImportError:
     c_extension = None
 
-# Property corpus: (secrets, input, canaries), no expected-output string. The contract
-# is "no secret survives, canaries survive" -- not exact masked bytes -- so cases assert
-# those properties rather than a reference output.
-# SDFIX: should I check in the generate.py file?
+# Corpus contract: each case asserts which substrings must be absent (masked) and which must
+# survive. Short secrets (4-5 chars) are masked only at a word boundary, so one can survive.
 CORPUS = "test/units/module_utils/_internal/fixtures/secret_masking_corpus.json"
 
 with open(CORPUS) as _fh:
@@ -23,8 +21,7 @@ with open(CORPUS) as _fh:
 SENTINEL = _CORPUS["sentinel"]
 CASES = _CORPUS["cases"]
 
-# Backends the masker must satisfy identically: the pure-Python fallback always,
-# the C extension when it is installed.
+# The masker must behave identically on both backends: pure-Python fallback and C extension.
 BACKENDS = [pytest.param(_ahocorasick, id="pure_python")]
 if c_extension is not None:
     BACKENDS.append(pytest.param(c_extension, id="c_extension"))
@@ -39,16 +36,14 @@ def masker(request, monkeypatch):
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_masking_contract(masker, case):
-    """The masking contract, per case: no registered secret survives as a substring of the
-    output (safety), and every non-secret canary survives verbatim (anti-destruction).
-    """
+    """Each case: every expect_absent substring is masked out; every expect_present survives verbatim."""
     for secret in case["secrets"]:
         masker.register_secret_text(secret)
     masked = masker.mask_string(case["input"], mask_placeholder=SENTINEL)
-    for secret in case["secrets"]:
-        assert secret not in masked, f"secret {secret!r} survived in {masked!r}"
-    for canary in case["canaries"]:
-        assert canary in masked, f"canary {canary!r} was destroyed in {masked!r}"
+    for absent in case["expect_absent"]:
+        assert absent not in masked, f"{absent!r} survived in {masked!r}"
+    for present in case["expect_present"]:
+        assert present in masked, f"{present!r} was destroyed in {masked!r}"
 
 
 def test_register_secret_text_is_idempotent(masker):
