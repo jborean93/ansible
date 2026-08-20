@@ -60,10 +60,10 @@ class Automaton:
         Returns ``True`` if newly added; re-adding overwrites the value. Resets
         ``kind`` to ``TRIE``, invalidating any built automaton.
         """
-        if not word:
-            return False
         if not isinstance(word, str):
             raise TypeError("string expected")
+        if not word:
+            return False
 
         node = self._root
         for ch in word:
