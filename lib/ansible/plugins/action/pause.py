@@ -112,8 +112,6 @@ class ActionModule(ActionBase):
         # Only echo input if no timeout is specified
         echo = seconds is None and echo
 
-        # SDFIX: (not caused by SD, just weird): timeout + prompt doesn't listen to user input without Ctrl-C, but then records it anyway until a C or A is seen, seems wrong
-
         user_input = b''
         try:
             _user_input = display.prompt_until(prompt, private=not echo, seconds=seconds, complete_input=default_input_complete)
