@@ -12,7 +12,7 @@ except ImportError:
     c_extension = None
 
 # Corpus contract: each case asserts which substrings must be absent (masked) and which must
-# survive. Short secrets (4-5 chars) are masked only at a word boundary, so one can survive.
+# survive. Short secrets (4-6 chars) are masked only at a word boundary, so one can survive.
 CORPUS = "test/units/module_utils/_internal/fixtures/secret_masking_corpus.json"
 
 with open(CORPUS) as _fh:
