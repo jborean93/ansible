@@ -157,13 +157,13 @@ namespace Ansible.Secrets
         }
 
         /// <summary>
-        /// Masks any registered secrets found in the input string with the default placeholder "<secret>".
+        /// Masks any registered secrets found in the input string with the default placeholder "$REDACTED$".
         /// </summary>
         /// <param name="value">The input string to mask</param>
         /// <returns>The masked string</returns>
         public string MaskString(string value)
         {
-            return MaskString(value, "<secret>");
+            return MaskString(value, "$REDACTED$");
         }
 
         /// <summary>

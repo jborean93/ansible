@@ -86,7 +86,7 @@ class SecretMasker:
             if not _is_short_secret(end - start) or _sits_at_boundary(value, start, end)
         ]
 
-    def mask_string(self, value: str, *, mask_placeholder: str = '<secret>') -> str:
+    def mask_string(self, value: str, *, mask_placeholder: str = '$REDACTED$') -> str:
         if not value:
             return value
 
