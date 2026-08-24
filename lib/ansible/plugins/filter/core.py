@@ -58,7 +58,7 @@ def register_secret(secret: str) -> str:
 
     return secret
 
-def mask_secrets(value: str, mask_placeholder='<secret>') -> str:
+def mask_secrets(value: str, mask_placeholder='$REDACTED$') -> str:
     return secrets.mask_secrets(value, mask_placeholder=mask_placeholder)
 
 @accept_lazy_markers
