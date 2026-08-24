@@ -12,5 +12,5 @@ def register_secrets(values: _t.Iterable[str]) -> None:
     _secret_masker.register_secret_texts(values)
 
 
-def mask_secrets(value: str, *, mask_placeholder: str = '<secret>') -> str:
+def mask_secrets(value: str, *, mask_placeholder: str = '$REDACTED$') -> str:
     return _secret_masker.mask_string(value, mask_placeholder=mask_placeholder)
