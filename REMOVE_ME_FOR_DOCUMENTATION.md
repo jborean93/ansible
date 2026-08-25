@@ -16,3 +16,4 @@
   + What is the attribute
   + When it is deprecated
   + How to properly masking secrets
++ Config `secret` option and the types it applies to `str`, `string`, `list` (string elements)
