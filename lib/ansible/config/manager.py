@@ -24,7 +24,7 @@ from ansible.module_utils.common.sentinel import Sentinel
 from ansible.module_utils.common.text.converters import to_text, to_bytes, to_native
 from ansible.module_utils.common.yaml import yaml_load
 from ansible.module_utils.parsing.convert_bool import boolean
-from ansible.module_utils.secrets import register_secret
+from ansible.module_utils.secrets import register_secrets
 from ansible.parsing.quoting import unquote
 from ansible.utils.path import cleanup_tmp_file, makedirs_safe, unfrackpath
 
@@ -99,15 +99,6 @@ def _validate_secret_config_defs(
                 f"Config {_get_config_label(plugin_type, plugin_name, config)} cannot enable 'secret' with type {value_type!r}.",
                 help_text=f"'secret' is only supported for the following types: {', '.join(sorted(_SECRET_ALLOWED_TYPES))}.",
             )
-
-
-def _register_secret_config_value(value: object) -> None:
-    """Register a resolved secret config value (or its string elements) with the secret masker."""
-    if isinstance(value, str):
-        register_secret(value)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            _register_secret_config_value(item)
 
 
 def ensure_type(value: object, value_type: str | None, origin: str | None = None, origin_ftype: str | None = None) -> t.Any:
@@ -774,7 +765,16 @@ class ConfigManager:
 
             # register the resolved value for masking if the config is marked secret
             if value is not None and defs[config].get('secret'):
-                _register_secret_config_value(value)
+                secrets: list[str] = []
+                secret_queue: list[object] = [value]
+                while secret_queue:
+                    item = secret_queue.pop()
+                    if isinstance(item, str):
+                        secrets.append(item)
+                    elif isinstance(item, (list, tuple)):
+                        secret_queue.extend(item)
+
+                register_secrets(secrets)
         else:
             raise AnsibleUndefinedConfigEntry(f'No config definition exists for {_get_config_label(plugin_type, plugin_name, config)}.')
 
