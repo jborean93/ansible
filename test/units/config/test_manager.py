@@ -288,7 +288,7 @@ def test_secret_config_value_registered_from_env(monkeypatch: pytest.MonkeyPatch
     value = cm.get_config_value('password', plugin_type='connection', plugin_name='demo')
 
     assert value == 'super-secret-value'
-    assert fresh_masker.mask_string('log: super-secret-value') == 'log: <secret>'
+    assert fresh_masker.mask_string('log: super-secret-value') == 'log: $REDACTED$'
 
 
 def test_secret_config_value_registers_list_elements(fresh_masker: _secrets.SecretMasker) -> None:
@@ -302,7 +302,7 @@ def test_secret_config_value_registers_list_elements(fresh_masker: _secrets.Secr
 
     assert value == ['first-secret-key', 12345678, 'second-secret-key']
     masked = fresh_masker.mask_string('first-secret-key, 12345678, and second-secret-key')
-    assert masked == '<secret>, 12345678, and <secret>'
+    assert masked == '$REDACTED$, 12345678, and $REDACTED$'
 
 
 def test_non_secret_config_value_not_registered(fresh_masker: _secrets.SecretMasker) -> None:
