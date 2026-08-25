@@ -120,6 +120,7 @@ from ansible.utils.collection_loader._collection_finder import _get_collection_n
 from ansible.utils.path import unfrackpath
 from ansible.vars.manager import VariableManager
 from ansible.module_utils._internal import _deprecator
+from ansible._internal._secret_input import load_secret_input_files
 from ansible._internal._ssh import _agent_launch
 
 
@@ -171,6 +172,10 @@ class CLI(ABC):
         running an Ansible command.
         """
         self.parse()
+
+        # Register pre-seeded secrets as early as possible so they are masked from any subsequent output.
+        if self.name in ('ansible', 'ansible-playbook', 'ansible-console'):
+            load_secret_input_files(C.config.get_config_value('_SECRETS_INPUT_FILES'))
 
         # Initialize plugin loader after parse, so that the init code can utilize parsed arguments
         cli_collections_path = context.CLIARGS.get('collections_path') or []
