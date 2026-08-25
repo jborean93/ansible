@@ -16,3 +16,5 @@
   + What is the attribute
   + When it is deprecated
   + How to properly masking secrets
++ Config `secret` option and the types it applies to `str`, `string`, `list` (string elements)
+  + Call out that `suboptions` isn't support (due to it being documentation and not config driven anyway)

@@ -110,6 +110,7 @@ from ansible.inventory.manager import InventoryManager
 from ansible.module_utils.common.text.converters import to_bytes, to_text
 from ansible.module_utils.common.collections import is_sequence
 from ansible.module_utils.common.file import is_executable
+from ansible.module_utils.secrets import register_secret
 from ansible.parsing.dataloader import DataLoader
 from ansible.parsing.vault import PromptVaultSecret, get_file_vault_secret, VaultSecretsContext
 from ansible.plugins.loader import add_all_plugin_dirs, init_plugin_loader
@@ -359,6 +360,12 @@ class CLI(ABC):
 
         except EOFError:
             pass
+
+        if sshpass:
+            register_secret(sshpass)
+
+        if becomepass:
+            register_secret(becomepass)
 
         return sshpass, becomepass
 
