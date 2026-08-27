@@ -1268,6 +1268,9 @@ class AnsibleModule(object):
         if isinstance(msg, bytes):
             msg = msg.decode('utf-8', 'replace')
 
+        if log_args:
+            log_args = {k: _secrets.mask_secrets(v) for k, v in log_args.items()}
+
         msg = _secrets.mask_secrets(msg)
 
         try:
