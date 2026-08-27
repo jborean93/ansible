@@ -136,7 +136,8 @@ namespace Ansible.Secrets
                 _alphabet.Add(c);
 
                 long key = ((long)current << 16) | (long)c;
-                if (!_trieGoto.TryGetValue(key, out int next))
+                int next = 0;
+                if (!_trieGoto.TryGetValue(key, out next))
                 {
                     next = _nodeCount++;
                     EnsureNodeCapacity(_nodeCount);
@@ -291,7 +292,10 @@ namespace Ansible.Secrets
             if (_charToIndex == null)
             {
                 _charToIndex = new int[65536];
-                Array.Fill(_charToIndex, -1);
+                for (int i = 0; i < _charToIndex.Length; i++)
+                {
+                    _charToIndex[i] = -1;
+                }
             }
             else
             {
