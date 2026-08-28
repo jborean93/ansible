@@ -230,6 +230,7 @@ def _ansiballz_main(
                 profile=profile,
                 module_fqn=module_fqn,
                 modlib_path=modlib_path,
+                secrets=secrets,
                 extensions=extensions,
             )
 

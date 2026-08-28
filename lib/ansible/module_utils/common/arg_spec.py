@@ -42,6 +42,7 @@ from ansible.module_utils.errors import (
     UnsupportedError,
 )
 
+
 class ValidationResult:
     """Result of argument spec validation.
 

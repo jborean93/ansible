@@ -460,7 +460,6 @@ def _create_powershell_wrapper(
             'ForModule': True,
         }
 
-        # SDFIX: should we warn or fail if secrets are present and are not using our masker?
         if 'Ansible.Secrets.cs' in cs_deps:
             module_secrets = _secrets._secret_masker.secrets_in(module_arg_json)
             secure_module_params['Secrets'] = list(module_secrets)

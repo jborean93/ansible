@@ -47,7 +47,6 @@ class AnsibleInstrumentedConstructor(_BaseConstructor):
 
         self._origin = origin
         self._trusted_as_template = trusted_as_template
-        # SDFIX: does the dumb base version need this, or only on the fancy subclass?
         self._sensitive_source_data = sensitive_source_data
         self._duplicate_key_mode = C.config.get_config_value('DUPLICATE_YAML_DICT_KEY')
 
@@ -69,9 +68,7 @@ class AnsibleInstrumentedConstructor(_BaseConstructor):
         mapping = super().construct_mapping(node, deep)
         keys = set()
 
-        # SDFIX: implement this inline with constructor hooks, add different mask modes (None, V-only, K/V, include/ignore sequence)
         if self._sensitive_source_data:
-            # SDFIX: ick, we could do this in the str constructor if we had context to avoid dict keys, or just let it encrypt those too?
             for k, v in mapping.items():
                 if isinstance(v, str):
                     register_secret(v)
@@ -162,7 +159,6 @@ class AnsibleInstrumentedConstructor(_BaseConstructor):
         values = self.construct_sequence(node)
 
         if self._sensitive_source_data:
-            # SDFIX: ick, we could do this in the str constructor if we had context to avoid dict keys, or just let it encrypt those too?
             for v in values:
                 if isinstance(v, str):
                     register_secret(v)

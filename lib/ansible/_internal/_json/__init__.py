@@ -209,9 +209,8 @@ class AnsibleVariableVisitor:
             # apply shared instance default origin tag
             result = self.origin.tag(result)
 
-        # SDFIX: Should we mask other types by repr value?
         if self._mask_secret_values and isinstance(result, str):
-            result = mask_secrets(result)
+            result = mask_secrets(result)  # type: ignore[assignment]
 
         return result
 

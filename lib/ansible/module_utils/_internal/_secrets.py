@@ -29,7 +29,7 @@ def _sits_at_boundary(value: str, start: int, end: int) -> bool:
 
 
 class SecretMasker:
-    def __init__(self):
+    def __init__(self) -> None:
         self._store = ahocorasick.Automaton()
         self._new_secret_trackers: set[NewSecretTracker] = set()
         self._lock = ForkSafeLock()
@@ -46,7 +46,6 @@ class SecretMasker:
             if self._store.exists(secret):
                 return secret
 
-            # SDFIX: storing the raw value in the data could simplify consumption
             self._store.add_word(secret, len(secret))
 
             for tracker in self._new_secret_trackers:
@@ -59,7 +58,6 @@ class SecretMasker:
             new = set()
 
             for secret in secrets:
-                # SDFIX: silently skip too-short secrets for now; source the threshold from config.
                 if len(secret) < _MINIMUM_SECRET_LENGTH or self._store.exists(secret):
                     continue
                 self._store.add_word(secret, len(secret))
@@ -67,7 +65,6 @@ class SecretMasker:
 
             for tracker in self._new_secret_trackers:
                 tracker._new_secrets.update(new)
-
 
     def _raw_spans(self, value: str) -> list[tuple[int, int]]:
         """(start, end) positions of every registered secret found in value."""
@@ -121,16 +118,9 @@ class SecretMasker:
         return frozenset(value[start:end] for start, end in spans)
 
 
-# usage contexts:
-# primary controller (primary, no delta tracking)
-# controller forked workers (init is free, track delta with bulk return and/or parent update on callback dispatch?)
-# controller spawned workers (init full state ser/deser or scanned-from-args, track delta with bulk return and/or parent update on callback dispatch)
-# ansible-connection stub (special case of controller spawned worker, scanned-from-args, no delta needed?)
-# Python module process (init scanned-from-args, track delta with bulk return (until we support streaming responses, then opportunistic control plane updates)
-# Windows/other module process (init scanned-from-args, impl TBD)
-
-
 class NewSecretTracker:
+    """Used to track newly registered secrets once the tracker was registered."""
+
     def __init__(self, masker: SecretMasker):
         self._new_secrets: set[str] = set()
         self._masker = masker

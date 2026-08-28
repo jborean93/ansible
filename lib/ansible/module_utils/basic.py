@@ -1298,14 +1298,26 @@ class AnsibleModule(object):
         for param in self.params:
             canon = self.aliases.get(param, param)
             arg_opts = self.argument_spec.get(canon, {})
+            no_log = arg_opts.get('no_log', None)
 
             # try to proactively capture password/passphrase fields
-            param_val = self.params[param]
-            if not isinstance(param_val, (str, bytes)):
-                param_val = str(param_val)
-            elif isinstance(param_val, str):
-                param_val = param_val.encode('utf-8')
-            log_args[param] = param_val
+            if no_log is None and PASSWORD_MATCH.search(param):
+                log_args[param] = '$REDACTED$'
+                self.warn('Module did not set no_log for %s' % param)
+            elif self.boolean(no_log):
+                # We don't rely on the secret masker here because the value
+                # may have been set to anything (non-string/too short, etc) and
+                # historically we've always just blocked it out.
+                log_args[param] = '$REDACTED$'
+            else:
+                param_val = self.params[param]
+                if not isinstance(param_val, (str, bytes)):
+                    param_val = str(param_val)
+                elif isinstance(param_val, bytes):
+                    param_val = param_val.decode('utf-8')
+
+                # These log args will be masked in log() if they contain any secrets.
+                log_args[param] = param_val
 
         msg = ['%s=%s' % (to_native(arg), to_native(val)) for arg, val in log_args.items()]
         if msg:
@@ -1786,7 +1798,6 @@ class AnsibleModule(object):
                     shutil.copyfileobj(in_src, out_dest)
         except (shutil.Error, OSError) as ex:
             raise Exception(f'Could not write data to file {dest!r} from {src!r}.') from ex
-
 
     def run_command(self, args, check_rc=False, close_fds=True, executable=None, data=None, binary_data=False, path_prefix=None, cwd=None,
                     use_unsafe_shell=False, prompt_regex=None, environ_update=None, umask=None, encoding='utf-8', errors='surrogate_or_strict',
