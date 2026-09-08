@@ -11,17 +11,15 @@ for example for a compiled extension, without touching the registry semantics:
 * secrets of 4-6 characters are masked only at a word boundary (both neighbours non-alphanumeric or
   the string edge); if the longest secret at a position is rejected a shorter one there may still apply
 
-``_AnchoredMatcher`` is an anchored Aho-Corasick implementation with a few optimisations for Ansible:
+``_Fixed4Matcher`` is a custom string matcher/registry implementation tuned for Ansible.
 
-* the automaton stores only the first ``_ANCHOR_LEN`` characters of each secret; a hit is verified
-  against the full secrets registered under that anchor with slice lookups, so memory is bounded by
-  distinct prefixes rather than total secret length, and matching never depends on how long secrets are
+* the matcher stores only the first ``_ANCHOR_LEN`` characters of each secret in a dictionary and uses
+  a sliding window scan of the data it is attempting to mask; a hit is verified against the full secrets
+  registered under that anchor with slice lookups.
 * before the full comparison, ``_PROBE_LEN`` characters from the middle of the candidate are checked
-  against the middles of the registered secrets of that length, so a near-miss costs the probe rather
-  than the full length whatever the secret looks like (shared prefixes and suffixes such as PEM
-  headers do not help an attacker trying to overload the matching with long secrets that are not present)
-* fail/output links are computed lazily per node and cached by epoch, so registering a secret never
-  rebuilds anything
+  against teh middles of the registered secrets of that length, so a near-miss costs the probe rather
+  than the full length whatever the secret looks like (shared prefixes and suffixes such as PEM headers
+  do not help an attacker trying to overload the matching with long secrets that are not present)
 """
 
 from __future__ import annotations
@@ -43,7 +41,7 @@ _MAXIMUM_SECRET_LENGTH = 65536  # trims to this length as a cap for registration
 _STRIP_CHARS = " \t\r\n"  # stripped from both ends before registration
 
 # _AnchoredMatcher tuning; neither affects results
-_ANCHOR_LEN = 8  # chars of each secret held in the automaton; trades memory against false anchor hits
+_ANCHOR_LEN = _MINIMUM_SECRET_LENGTH  # Keeping these two the same means we only need 1 sliding window scan
 _PROBE_LEN = 8  # chars compared from the middle of a candidate before the full comparison
 
 
@@ -87,61 +85,46 @@ class AnsibleSecretMaskError(Exception):
     """
 
 
-class _Node:
-    __slots__ = ("children", "depth", "lengths", "fail", "out", "epoch")
+class _Fixed4Matcher:
+    """Matcher using fixed 4-character anchors for simplicity and speed.
 
-    def __init__(self, depth: int, fail: _Node | None = None) -> None:
-        self.children: dict[str, _Node] = {}
-        self.depth = depth
-
-        # anchor node: full-secret lengths under this anchor, longest first; empty when not an anchor
-        self.lengths: tuple[int, ...] = ()
-
-        # longest proper suffix of this node's path that is also a path; the root's is itself, and every
-        # other node starts at the root until _link computes the real one
-        self.fail: _Node = fail if fail is not None else self
-        self.out: _Node | None = None  # nearest anchor node on the fail chain (self if this is an anchor)
-        self.epoch = -1  # registry epoch fail/out were computed for
-
-
-class _AnchoredMatcher:
-    """Finds every occurrence of the registered words in a string. Not thread-safe; the owner locks.
-
-    Words must already satisfy the registry rules (stripped, minimum length, trimmed, not previously added).
+    Every secret is indexed by its first 4 characters. At each position in the
+    text, we do exactly one hash lookup with the 4-char window, then verify
+    any candidates found.
     """
 
     def __init__(self) -> None:
-        self._root = _Node(0)
-        self._root.epoch = 0
+        # Map from 4-char anchor to list of (length, full_secret, probe) tuples
+        # Each list is sorted by length (longest first) for leftmost-longest matching
+        self._anchors: dict[str, list[tuple[int, str, str]]] = {}
 
-        # Secrets and probes (middle of secrets) are stored by length for lookup during verification.
+        # For detection mode
         self._by_length: dict[int, set[str]] = {}
-        self._probes: dict[int, set[str]] = {}  # per length, the middle _PROBE_LEN chars of every word of that length
-        self._epoch = 0
+        self._probes: dict[int, set[str]] = {}
 
     def add(self, word: str) -> None:
-        """Add a word to the matcher. The word must already satisfy the registry rules."""
-        self._by_length.setdefault(len(word), set()).add(word)
-
+        """Add a word to the matcher."""
         word_len = len(word)
+        anchor = word[:_ANCHOR_LEN]
+
         offset, size = _probe_span(word_len)
-        self._probes.setdefault(word_len, set()).add(word[offset : offset + size])
+        probe = word[offset:offset + size]
 
-        node = self._root
-        for depth, char in enumerate(word[:_ANCHOR_LEN], start=1):
-            child = node.children.get(char)
-            if child is None:
-                child = _Node(depth, fail=self._root)
-                node.children[char] = child
+        # Store for detection mode
+        self._by_length.setdefault(word_len, set()).add(word)
+        self._probes.setdefault(word_len, set()).add(probe)
 
-            node = child
+        if anchor not in self._anchors:
+            self._anchors[anchor] = []
 
-        if word_len not in node.lengths:
-            node.lengths = tuple(sorted(node.lengths + (word_len,), reverse=True))
+        # Check if already present
+        for existing_len, existing_word, _ in self._anchors[anchor]:
+            if existing_len == word_len and existing_word == word:
+                return
 
-        # new nodes can become better fail targets for existing nodes: drop every cached link
-        self._epoch += 1
-        self._root.epoch = self._epoch
+        # Add and re-sort by length (longest first)
+        self._anchors[anchor].append((word_len, word, probe))
+        self._anchors[anchor].sort(key=lambda x: x[0], reverse=True)
 
     def spans(self, value: str, boundary_check: bool) -> list[tuple[int, int]]:
         """Every verified word occurrence in ``value`` as (start, end), unsorted, overlapping allowed.
@@ -149,133 +132,67 @@ class _AnchoredMatcher:
         With ``boundary_check`` the longest valid word at each start is reported (it covers any shorter
         one) and short words are subject to the boundary rule; without it every word is reported.
         """
-        root = self._root
-        epoch = self._epoch
+
         value_len = len(value)
-        state = root
-        children = root.children
         spans: list[tuple[int, int]] = []
+        anchors = self._anchors
+
         found: set[tuple[int, int]] = set()
-        verify = self._verify
-        detect_all = self._detect_all
+        for i in range(value_len - _ANCHOR_LEN + 1):
+            anchor = value[i:i + _ANCHOR_LEN]  # sliding window
+            candidates = anchors.get(anchor)
+            if not candidates:
+                continue
 
-        index = 0
-        while index < value_len:
-            char = value[index]
-            next_state = children.get(char)
-            if next_state is None:
-                if state is not root:
-                    # no edge for this char, follow fail links until one has it, or give up at root
-                    while True:
-                        state = state.fail
-                        children = state.children
-                        next_state = children.get(char)
-                        if next_state is not None or state is root:
-                            break
-
-                if next_state is None:
-                    index += 1
-                    continue
-
-            state = next_state
-            children = state.children
-            if state.epoch != epoch:
-                self._link(state, value[index - state.depth + 1 : index + 1])
-
-            # every anchor ending at this index: the state's own, then shorter ones along the fail chain
-            anchor = state.out
-            while anchor is not None:
-                start = index - anchor.depth + 1
-                if boundary_check:
-                    end = verify(value, start, anchor, True)
-                    if end > 0:
-                        spans.append((start, end))
-                else:
-                    detect_all(value, start, anchor, found)
-
-                anchor = anchor.fail.out if anchor.fail is not root else None
-            index += 1
+            if boundary_check:
+                end = self._verify_longest(value, i, candidates, boundary_check)
+                if end > 0:
+                    spans.append((i, end))
+            else:
+                self._detect_all(value, i, candidates, found)
 
         return spans if boundary_check else list(found)
 
-    def _link(self, node: _Node, path: str) -> None:
-        """Compute fail/out for ``node`` (the state reached by ``path``) for the current epoch."""
-        root = self._root
-        epoch = self._epoch
-        chain = [root]  # chain[depth] is the node for path[:depth]
-
-        for char in path:
-            chain.append(chain[-1].children[char])
-
-        for depth in range(1, len(chain)):
-            current = chain[depth]
-            if current.epoch == epoch:
-                continue
-
-            if depth == 1:
-                fail = root
-            else:
-                # walk the parent's fail chain until a node has an edge for this char (or root)
-                fail = chain[depth - 1].fail
-                char = path[depth - 1]
-                while True:
-                    candidate = fail.children.get(char)
-                    if candidate is not None and candidate is not current:
-                        fail = candidate
-                        break
-                    if fail is root:
-                        break
-                    if fail.epoch != epoch:
-                        self._link(fail, path[depth - 1 - fail.depth : depth - 1])
-                    fail = fail.fail
-
-                if fail.epoch != epoch:
-                    self._link(fail, path[depth - fail.depth : depth])
-
-            current.fail = fail
-            if current.lengths:
-                current.out = current
-            elif fail is root:
-                current.out = None
-            else:
-                current.out = fail.out
-
-            current.epoch = epoch
-
-    def _verify(self, value: str, start: int, node: _Node, boundary_check: bool) -> int:
-        """End of the longest registered word starting at ``start`` under anchor ``node``, or -1."""
-        by_length = self._by_length
-        probes = self._probes
+    def _verify_longest(self, value: str, start: int, candidates: list[tuple[int, str, str]], boundary_check: bool) -> int:
+        """Return end index of the longest verified secret at start, or -1."""
         value_len = len(value)
 
-        for length in node.lengths:
+        for length, word, probe in candidates:
             end = start + length
             if end > value_len:
                 continue
 
+            # Probe check
             offset, size = _probe_span(length)
-            if value[start + offset : start + offset + size] not in probes[length]:
+            if value[start + offset:start + offset + size] != probe:
                 continue
 
-            if value[start:end] in by_length[length]:
-                if boundary_check and length <= _MAXIMUM_SHORT_SECRET_LENGTH and not _sits_at_boundary(value, start, end):
-                    continue
-
+            # Full comparison
+            if value[start:end] == word:
+                # Boundary check for short secrets
+                if boundary_check and length <= _MAXIMUM_SHORT_SECRET_LENGTH:
+                    if not _sits_at_boundary(value, start, end):
+                        continue
                 return end
+
         return -1
 
-    def _detect_all(self, value: str, start: int, node: _Node, found: set[tuple[int, int]]) -> None:
-        """Detection: record every registered word starting at ``start`` under anchor ``node``."""
-        by_length = self._by_length
-        probes = self._probes
+    def _detect_all(self, value: str, start: int, candidates: list[tuple[int, str, str]], found: set[tuple[int, int]]) -> None:
+        """Detect all secrets starting at start."""
         value_len = len(value)
-        for length in node.lengths:
+
+        for length, word, probe in candidates:
             end = start + length
             if end > value_len:
                 continue
 
+            # Probe check
             offset, size = _probe_span(length)
-            if value[start + offset : start + offset + size] in probes[length] and value[start:end] in by_length[length]:
+            if value[start + offset:start + offset + size] != probe:
+                continue
+
+            # Full comparison
+            if value[start:end] == word:
                 found.add((start, end))
 
 
@@ -286,8 +203,7 @@ class SecretMasker:
     def __init__(self) -> None:
         self._new_secret_trackers: set[NewSecretTracker] = set()
         self._lock = ForkSafeLock()
-        self._matcher = _AnchoredMatcher()
-
+        self._matcher = _Fixed4Matcher()
         self._secrets: set[str] = set()  # the registered secrets, as given (stripped and trimmed)
         self._forms: set[str] = set()  # every string the matcher knows: secrets and their derived forms
         # JSON-encoded form -> the secret it is the encoding of, for forms that differ from the secret
@@ -308,29 +224,22 @@ class SecretMasker:
         """Register every secret in ``secrets`` for masking."""
         with self._lock:
             new = set()
-            was_enabled = _gc.isenabled()
-            _gc.disable()  # trie construction is dominated by the cyclic GC otherwise
-            try:
-                for secret in secrets:
-                    # Surrounding whitespace is not part of the secret: values often
-                    # arrive with a trailing newline (vaulted files, stdin) but are used
-                    # stripped. The stripped value matches every occurrence the original
-                    # would have, plus the stripped uses.
-                    # FUTURE: Look into string normalisation \u00e9 vs \u0065\u0301, etc. to avoid
-                    # leaking secrets that are equivalent but not identical. Would require logic
-                    # on the masking side either to normalise and mutate the input or to register
-                    # multiple normalised forms of each secret.
-                    trimmed = secret.strip(_STRIP_CHARS)[:_MAXIMUM_SECRET_LENGTH]
+            for secret in secrets:
+                # Surrounding whitespace is not part of the secret: values often
+                # arrive with a trailing newline (vaulted files, stdin) but are used
+                # stripped. The stripped value matches every occurrence the original
+                # would have, plus the stripped uses.
+                # FUTURE: Look into string normalisation \u00e9 vs \u0065\u0301, etc. to avoid
+                # leaking secrets that are equivalent but not identical. Would require logic
+                # on the masking side either to normalise and mutate the input or to register
+                # multiple normalised forms of each secret.
+                trimmed = secret.strip(_STRIP_CHARS)[:_MAXIMUM_SECRET_LENGTH]
 
-                    if len(trimmed) < _MINIMUM_SECRET_LENGTH:
-                        continue
+                if len(trimmed) < _MINIMUM_SECRET_LENGTH:
+                    continue
 
-                    if self._add(trimmed):
-                        new.add(trimmed)
-
-            finally:
-                if was_enabled:
-                    _gc.enable()
+                if self._add(trimmed):
+                    new.add(trimmed)
 
             for tracker in self._new_secret_trackers:
                 tracker._new_secrets.update(new)
@@ -441,4 +350,4 @@ class NewSecretTracker:
         return flushed
 
 
-_secret_masker = SecretMasker()  # default shared instance
+_secret_masker = SecretMasker()
