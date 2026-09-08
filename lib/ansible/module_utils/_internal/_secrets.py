@@ -108,7 +108,7 @@ class _Fixed4Matcher:
         anchor = word[:_ANCHOR_LEN]
 
         offset, size = _probe_span(word_len)
-        probe = word[offset:offset + size]
+        probe = word[offset : offset + size]
 
         # Store for detection mode
         self._by_length.setdefault(word_len, set()).add(word)
@@ -118,7 +118,7 @@ class _Fixed4Matcher:
             self._anchors[anchor] = []
 
         # Check if already present
-        for existing_len, existing_word, _ in self._anchors[anchor]:
+        for existing_len, existing_word, _probe in self._anchors[anchor]:
             if existing_len == word_len and existing_word == word:
                 return
 
@@ -132,14 +132,13 @@ class _Fixed4Matcher:
         With ``boundary_check`` the longest valid word at each start is reported (it covers any shorter
         one) and short words are subject to the boundary rule; without it every word is reported.
         """
-
         value_len = len(value)
         spans: list[tuple[int, int]] = []
         anchors = self._anchors
 
         found: set[tuple[int, int]] = set()
         for i in range(value_len - _ANCHOR_LEN + 1):
-            anchor = value[i:i + _ANCHOR_LEN]  # sliding window
+            anchor = value[i : i + _ANCHOR_LEN]  # sliding window
             candidates = anchors.get(anchor)
             if not candidates:
                 continue
@@ -164,7 +163,7 @@ class _Fixed4Matcher:
 
             # Probe check
             offset, size = _probe_span(length)
-            if value[start + offset:start + offset + size] != probe:
+            if value[start + offset : start + offset + size] != probe:
                 continue
 
             # Full comparison
@@ -188,7 +187,7 @@ class _Fixed4Matcher:
 
             # Probe check
             offset, size = _probe_span(length)
-            if value[start + offset:start + offset + size] != probe:
+            if value[start + offset : start + offset + size] != probe:
                 continue
 
             # Full comparison
@@ -350,4 +349,4 @@ class NewSecretTracker:
         return flushed
 
 
-_secret_masker = SecretMasker()
+_secret_masker = SecretMasker()  # default shared instance
