@@ -98,10 +98,6 @@ class _Fixed4Matcher:
         # Each list is sorted by length (longest first) for leftmost-longest matching
         self._anchors: dict[str, list[tuple[int, str, str]]] = {}
 
-        # For detection mode
-        self._by_length: dict[int, set[str]] = {}
-        self._probes: dict[int, set[str]] = {}
-
     def add(self, word: str) -> None:
         """Add a word to the matcher."""
         word_len = len(word)
@@ -109,10 +105,6 @@ class _Fixed4Matcher:
 
         offset, size = _probe_span(word_len)
         probe = word[offset : offset + size]
-
-        # Store for detection mode
-        self._by_length.setdefault(word_len, set()).add(word)
-        self._probes.setdefault(word_len, set()).add(probe)
 
         if anchor not in self._anchors:
             self._anchors[anchor] = []
