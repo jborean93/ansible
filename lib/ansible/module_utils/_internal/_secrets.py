@@ -33,6 +33,12 @@ from ansible.module_utils._internal._concurrent._fork_safe_lock import ForkSafeL
 # shared frozenset optimization for no secrets found
 _emptyfrozenset: frozenset[str] = frozenset()
 
+# Bucket layout: (length, probe_offset, probe_stop, probes, secrets)
+# All secrets of one length sharing one 4-char anchor prefix. Visited longest-first for
+# leftmost-longest matching. The probe is compared before the full secret so a near-miss
+# costs the probe slice rather than the full length.
+_Bucket = tuple[int, int, int, set[str], set[str]]
+
 
 # If any of these are changed we need to ensure that Ansible.Secrets.cs is updated to match.
 _MINIMUM_SECRET_LENGTH = 4  # below this, not registered at all
@@ -93,59 +99,66 @@ class _Fixed4Matcher:
     first for leftmost-longest matching.
     """
 
-
     def __init__(self) -> None:
-        # bucket layout, unpacked in the scan loop: (length, probe_start, probe_stop, probes, secrets)
         # anchor -> buckets, longest first
-        self._scan: dict[str, list[tuple[int, int, int, set[str], set[str]]]] = {}
+        self._scan: dict[str, list[_Bucket]] = {}
         # anchor -> length -> bucket
-        self._buckets: dict[str, dict[int, tuple[int, int, int, set[str], set[str]]]] = {}
+        self._buckets: dict[str, dict[int, _Bucket]] = {}
 
     def add(self, word: str) -> None:
         """Add a word to the matcher."""
         word_len = len(word)
         anchor = word[:_ANCHOR_LEN]
 
-        # Add anchor to scan dict if not exists
-        by_length = self._buckets.get(anchor)
-        if by_length is None:
-            by_length = {}
-            self._buckets[anchor] = by_length
-            self._scan[anchor] = []
+        by_length = self._buckets.setdefault(anchor, {})
+        anchor_buckets = self._scan.setdefault(anchor, [])
 
-        # Then add the bucket by length
         bucket = by_length.get(word_len)
         if bucket is None:
             offset, size = _probe_span(word_len)
             bucket = (word_len, offset, offset + size, set(), set())
             by_length[word_len] = bucket
-            self._scan[anchor].append(bucket)
-            self._scan[anchor].sort(key=_operator.itemgetter(0), reverse=True)
+            anchor_buckets.append(bucket)
+            anchor_buckets.sort(key=_operator.itemgetter(0), reverse=True)
 
-        _, offset, stop, probes, secrets = bucket
-        probes.add(word[offset:stop])
+        length, probe_offset, probe_stop, probes, secrets = bucket
+        probes.add(word[probe_offset:probe_stop])
         secrets.add(word)
 
-    def raw_spans(self, value: str) -> list[tuple[int, int]]:
-        """Every verified word occurrence in ``value`` as (start, end), unsorted, overlapping allowed."""
+    def _spans(self, value: str, boundary_check: bool = False) -> list[tuple[int, int]]:
+        """Scan for secret occurrences, optionally applying boundary rules and longest-first."""
         value_len = len(value)
         spans: list[tuple[int, int]] = []
+        scan_get = self._scan.get
 
         for start in range(value_len - _ANCHOR_LEN + 1):
-            buckets = self._scan.get(value[start : start + _ANCHOR_LEN])  # sliding window
+            buckets = scan_get(value[start : start + _ANCHOR_LEN])  # sliding window
             if not buckets:
                 continue
 
-            for length, offset, stop, probes, secrets in buckets:
+            for length, probe_offset, probe_stop, probes, secrets in buckets:
                 end = start + length
                 if end > value_len:
                     continue
-                if value[start + offset : start + stop] not in probes:
+                if value[start + probe_offset : start + probe_stop] not in probes:
                     continue
-                if value[start:end] in secrets:
-                    spans.append((start, end))
+                if value[start:end] not in secrets:
+                    continue
+
+                if boundary_check and length <= _MAXIMUM_SHORT_SECRET_LENGTH:
+                    if not _sits_at_boundary(value, start, end):
+                        continue
+
+                spans.append((start, end))
+
+                if boundary_check:
+                    break  # buckets are longest first, so this one covers any shorter match here
 
         return spans
+
+    def raw_spans(self, value: str) -> list[tuple[int, int]]:
+        """Every verified word occurrence in ``value`` as (start, end), unsorted, overlapping allowed."""
+        return self._spans(value, boundary_check=False)
 
     def boundary_checked_spans(self, value: str) -> list[tuple[int, int]]:
         """The longest verified word at each start in ``value`` as (start, end), unsorted.
@@ -153,28 +166,7 @@ class _Fixed4Matcher:
         The longest word at a start covers any shorter one there, so only it is reported. Short words
         are subject to the boundary rule; if the longest is rejected by it a shorter one may still apply.
         """
-        value_len = len(value)
-        spans: list[tuple[int, int]] = []
-
-        for start in range(value_len - _ANCHOR_LEN + 1):
-            buckets = self._scan.get(value[start : start + _ANCHOR_LEN])  # sliding window
-            if not buckets:
-                continue
-
-            for length, offset, stop, probes, secrets in buckets:
-                end = start + length
-                if end > value_len:
-                    continue
-                if value[start + offset : start + stop] not in probes:
-                    continue
-                if value[start:end] not in secrets:
-                    continue
-                if length <= _MAXIMUM_SHORT_SECRET_LENGTH and not _sits_at_boundary(value, start, end):
-                    continue
-                spans.append((start, end))
-                break  # buckets are longest first, so this one covers any shorter match here
-
-        return spans
+        return self._spans(value, boundary_check=True)
 
 
 class SecretMasker:
