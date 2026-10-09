@@ -33,6 +33,8 @@ from copy import deepcopy
 
 from ansible import constants as C
 from ansible.module_utils._internal import _datatag
+from ansible.module_utils._internal._datatag._tags import NonsensitiveData
+from ansible.module_utils.secrets import mask_secrets
 from ansible._internal._yaml import _dumper
 from ansible.plugins import AnsiblePlugin
 from ansible.utils.color import stringc
@@ -247,7 +249,7 @@ class CallbackBase(AnsiblePlugin):
 
     @staticmethod
     def host_label(result: CallbackTaskResult) -> str:
-        """Return label for the hostname (& delegated hostname) of a task result."""
+        """Return label for the hostname (& delegated hostname) of a task result, tagged as nonsensitive."""
         label = result.host.get_name()
         if result.task.delegate_to and result.task.delegate_to != result.host.get_name():
             # show delegated host
@@ -256,7 +258,17 @@ class CallbackBase(AnsiblePlugin):
             ahost = result.result.get('_ansible_delegated_vars', {}).get('ansible_host', result.task.delegate_to)
             if result.task.delegate_to != ahost:
                 label += "(%s)" % ahost
-        return label
+        return NonsensitiveData().tag(label)
+
+    @staticmethod
+    def _mark_nonsensitive(msg: str) -> str:
+        """
+        Mark `msg` as nonsensitive so `Display` will not scan it for registered secrets.
+
+        Prefer `Display.compose`, which vouches only for the scaffolding around its values. Use this for a value
+        that is scaffolding in its own right, such as a source file path, so `compose` passes it through untouched.
+        """
+        return NonsensitiveData().tag(msg)
 
     def _run_is_verbose(self, result: CallbackTaskResult, verbosity: int = 0) -> bool:
         return ((self._display.verbosity > verbosity or result.result.get('_ansible_verbose_always', False) is True)
@@ -343,9 +355,8 @@ class CallbackBase(AnsiblePlugin):
             return abridged_result
 
         if result_format == 'json':
-            return json.dumps(abridged_result, cls=_fallback_to_str.Encoder, indent=indent, ensure_ascii=False, sort_keys=sort_keys)
-
-        if result_format == 'yaml':
+            text = json.dumps(abridged_result, cls=_fallback_to_str.Encoder, indent=indent, ensure_ascii=False, sort_keys=sort_keys)
+        elif result_format == 'yaml':
             # None is a sentinel in this case that indicates default behavior
             # default behavior for yaml is to prettify results
             lossy = pretty_results in (None, True)
@@ -358,7 +369,7 @@ class CallbackBase(AnsiblePlugin):
                 if 'stderr' in abridged_result and 'stderr_lines' in abridged_result:
                     abridged_result['stderr_lines'] = '<omitted>'
 
-            return '\n%s' % textwrap.indent(
+            text = '\n%s' % textwrap.indent(
                 yaml.dump(
                     abridged_result,
                     allow_unicode=True,
@@ -370,9 +381,13 @@ class CallbackBase(AnsiblePlugin):
                 ),
                 ' ' * (indent or 4)
             )
+        else:
+            # DTFIX5: add test to exercise this case
+            raise ValueError(f'Unsupported result_format {result_format!r}.')
 
-        # DTFIX5: add test to exercise this case
-        raise ValueError(f'Unsupported result_format {result_format!r}.')
+        # Masked here rather than in `Display`, since the transform above can introduce values that were not
+        # present when `mask_object` ran. Tagged so `compose` does not scan the whole dump a second time.
+        return NonsensitiveData().tag(mask_secrets(text))
 
     def _handle_warnings(self, res: _c.MutableMapping[str, t.Any]) -> None:
         """Display warnings and deprecation warnings sourced by task execution."""
@@ -535,7 +550,7 @@ class CallbackBase(AnsiblePlugin):
     def _print_task_path(self, task, color=C.COLOR_DEBUG):
         path = task.get_path()
         if path:
-            self._display.display(u"task path: %s" % path, color=color)
+            self._display.display(self._display.compose(u"task path: %s", self._mark_nonsensitive(path)), color=color)
 
     def set_play_context(self, play_context):
         pass
