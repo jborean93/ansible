@@ -249,12 +249,7 @@ class CallbackBase(AnsiblePlugin):
 
     @staticmethod
     def host_label(result: CallbackTaskResult) -> str:
-        """
-        Return label for the hostname (& delegated hostname) of a task result.
-
-        The label is tagged `NonsensitiveData`: host names are not secrets, so `Display.compose` interpolates it
-        as-is rather than scanning it. Any string operation on the result drops the tag and restores masking.
-        """
+        """Return label for the hostname (& delegated hostname) of a task result, tagged as nonsensitive."""
         label = result.host.get_name()
         if result.task.delegate_to and result.task.delegate_to != result.host.get_name():
             # show delegated host
@@ -270,11 +265,8 @@ class CallbackBase(AnsiblePlugin):
         """
         Mark `msg` as nonsensitive so `Display` will not scan it for registered secrets.
 
-        Prefer `Display.compose`, which masks each value and vouches only for the scaffolding around them. Use this
-        for a value that is scaffolding in its own right -- a source file path, say -- so that `compose` passes it
-        through untouched.
-
-        Marking a composed string vouches for all of it, including any substring that can carry a secret.
+        Prefer `Display.compose`, which vouches only for the scaffolding around its values. Use this for a value
+        that is scaffolding in its own right, such as a source file path, so `compose` passes it through untouched.
         """
         return NonsensitiveData().tag(msg)
 
@@ -393,9 +385,8 @@ class CallbackBase(AnsiblePlugin):
             # DTFIX5: add test to exercise this case
             raise ValueError(f'Unsupported result_format {result_format!r}.')
 
-        # Masking is applied here rather than left to `Display`, because the template transform above can introduce
-        # values that were not present when `mask_object` ran. The result is tagged to record that it has been
-        # masked already, so `Display.compose` interpolates it without scanning the whole dump a second time.
+        # Masked here rather than in `Display`, since the transform above can introduce values that were not
+        # present when `mask_object` ran. Tagged so `compose` does not scan the whole dump a second time.
         return NonsensitiveData().tag(mask_secrets(text))
 
     def _handle_warnings(self, res: _c.MutableMapping[str, t.Any]) -> None:
@@ -559,7 +550,6 @@ class CallbackBase(AnsiblePlugin):
     def _print_task_path(self, task, color=C.COLOR_DEBUG):
         path = task.get_path()
         if path:
-            # a source location is not module data, so it is vouched for the same way host names are
             self._display.display(self._display.compose(u"task path: %s", self._mark_nonsensitive(path)), color=color)
 
     def set_play_context(self, play_context):

@@ -442,7 +442,7 @@ class Display(metaclass=Singleton):
     @staticmethod
     def _mask_unless_nonsensitive(msg: str) -> str:
         """
-        Return `msg` with every registered secret it contains replaced by a placeholder.
+        Return `msg` with every registered secret replaced by a placeholder.
 
         Messages tagged `NonsensitiveData` are returned unchanged; the producer has vouched for the whole string.
         Every path that reaches `_log` must apply this first, since `_log` writes verbatim.
@@ -454,15 +454,12 @@ class Display(metaclass=Singleton):
         """
         Compose a message by interpolating `values` into `template`, a literal `%s`-style format string.
 
-        The template is scaffolding -- the labels, brackets and punctuation that make output readable -- and is
-        never data, so the composed result is vouched for as nonsensitive and `display` will not scan it again.
-        Each value is masked on the way in, unless it already carries `NonsensitiveData`, which is how a producer
-        such as `CallbackBase.host_label` says it has vouched for its own output.
+        The template is scaffolding, never data, so the result is vouched for as nonsensitive and `display` will
+        not scan it again. Each value is masked on the way in unless it already carries `NonsensitiveData`, which
+        is how a producer such as `CallbackBase.host_label` vouches for its own output. The result is tagged, so
+        it can be passed back in as a value to compose a wider message.
 
-        Only `%s` conversions work, since every value is stringified in order to be masked. Pre-format anything
-        that needs another conversion, and tag the result if it is scaffolding rather than data.
-
-        The result is tagged, so it can be passed straight back in as a value to compose a wider message.
+        Only `%s` conversions work, since every value is stringified in order to be masked.
         """
         masked = tuple(Display._mask_unless_nonsensitive(value if isinstance(value, str) else str(value)) for value in values)
 
@@ -470,7 +467,6 @@ class Display(metaclass=Singleton):
 
     @staticmethod
     def _format_event(label: str, summary: _messages.SummaryBase, event: _traceback.TracebackEvent) -> str:
-        """Compose the displayable form of an event summary as `[LABEL]: <message>`."""
         return Display.compose(f'[{label}]: %s', _display_utils.format_message(summary, _traceback.is_traceback_enabled(event)))
 
     @_proxy
@@ -587,17 +583,14 @@ class Display(metaclass=Singleton):
         if self.verbosity > caplevel:
             self._verbose_display(msg, host=host, caplevel=caplevel)
         elif self.log_verbosity > caplevel:
-            # The message was not displayed, so `display` did not log it, but log verbosity calls for it.
-            # `log_verbosity` is never below `verbosity`, so reaching here implies it exceeds both.
+            # not displayed, so `display` did not log it; `log_verbosity` is never below `verbosity`
             self._verbose_log(msg, host=host, caplevel=caplevel)
 
     @staticmethod
     def _verbose_message(msg: str, host: str | None) -> str:
-        """Compose a verbose line, optionally prefixed with the host it came from."""
         if host is None:
             return Display.compose('%s', msg)
 
-        # host names are not secrets, so the prefix is vouched for rather than masked
         return Display.compose('<%s> %s', NonsensitiveData().tag(host), msg)
 
     @_proxy
@@ -607,7 +600,7 @@ class Display(metaclass=Singleton):
     @_proxy
     def _verbose_log(self, msg: str, host: str | None = None, caplevel: int = 2) -> None:
         # we send to log if log was configured with higher verbosity
-        # this reaches `_log` without going through `display`, so masking must be applied here
+        # this bypasses `display`, so `_verbose_message` is what applies masking
         self._log(self._verbose_message(msg, host), C.COLOR_VERBOSE, caplevel)
 
     @_meets_debug
@@ -617,7 +610,6 @@ class Display(metaclass=Singleton):
         if host is not None:
             prefix += f" [{host}]"
 
-        # the pid/timestamp/host prefix is scaffolding, so it is vouched for rather than masked
         self.display(self.compose("%s: %s", NonsensitiveData().tag(prefix), msg), color=C.COLOR_DEBUG, caplevel=-3)
 
     def get_deprecation_message(
@@ -830,8 +822,8 @@ class Display(metaclass=Singleton):
         """
         Prints a header-looking line with cowsay or stars with length depending on terminal width (3 minimum)
 
-        Callers that compose a banner from scaffolding and data -- `TASK [name]` and the like -- should use
-        `compose`, so the scaffolding survives; by the time it arrives here the two are indistinguishable.
+        Use `compose` to build a banner from scaffolding and data; by the time it arrives here the two are
+        indistinguishable and the whole line is masked.
         """
         msg = self._mask_unless_nonsensitive(to_text(msg))
 

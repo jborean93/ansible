@@ -195,7 +195,6 @@ class CallbackModule(CallbackBase):
             checkmsg = " [CHECK MODE]"
         else:
             checkmsg = ""
-        # `prefix` and `checkmsg` are core-generated scaffolding; `task_name` and `args` are data, so `compose` masks them
         self._display.banner(self._display.compose(
             u"%s [%s%s]%s",
             self._mark_nonsensitive(prefix),
@@ -324,7 +323,7 @@ class CallbackModule(CallbackBase):
         )
         label = self._get_item_label(included_file._vars)
         if label:
-            # unlike the item labels elsewhere in this callback, these vars never passed through `mask_object`
+            # unlike item labels elsewhere in this callback, these vars never passed through `mask_object`
             msg = self._display.compose("%s => (item=%s)", msg, label)
         self._display.display(msg, color=C.COLOR_INCLUDED)
 
@@ -335,8 +334,6 @@ class CallbackModule(CallbackBase):
 
         for h in hosts:
             t = stats.summarize(h)
-            # every part of a recap row is scaffolding -- a host name, the fixed labels and their counts -- so
-            # there is nothing here for `compose` to mask and the whole row is vouched for directly
             self._display.display(
                 self._mark_nonsensitive(
                     u"%s : %s %s %s %s %s %s %s" % (
@@ -379,7 +376,7 @@ class CallbackModule(CallbackBase):
             for k in sorted(stats.custom.keys()):
                 if k == '_run':
                     continue
-                # custom stats never passed through `mask_object`, so both the key and the dump are data here
+                # custom stats never passed through `mask_object`, so the key is data too
                 self._display.display(self._display.compose('\t%s: %s', k, self._dump_results(stats.custom[k], indent=1).replace('\n', '')))
 
             # print per run custom stats
