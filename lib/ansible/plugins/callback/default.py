@@ -23,6 +23,8 @@ import typing as _t
 from ansible import constants as C
 from ansible import context
 from ansible.executor.task_result import CallbackTaskResult
+from ansible.module_utils._internal._datatag._tags import NonsensitiveData
+from ansible.module_utils.secrets import mask_secrets
 from ansible.playbook.task_include import TaskInclude
 from ansible.plugins.callback import CallbackBase
 from ansible.utils.color import colorize, hostcolor
@@ -30,6 +32,9 @@ from ansible.utils.fqcn import add_internal_fqcns
 
 if _t.TYPE_CHECKING:
     from ansible.playbook.included_file import IncludedFile
+
+def mark_nonsensitive(data):
+    return NonsensitiveData().tag(data)
 
 
 class CallbackModule(CallbackBase):
@@ -310,26 +315,31 @@ class CallbackModule(CallbackBase):
         self._display.banner("PLAY RECAP")
 
         hosts = sorted(stats.processed.keys())
+
         for h in hosts:
             t = stats.summarize(h)
-
+            screen_hostname = mask_secrets(u"%s" % hostcolor(h, t))
             self._display.display(
-                u"%s : %s %s %s %s %s %s %s" % (
-                    hostcolor(h, t),
-                    colorize(u'ok', t['ok'], C.COLOR_OK),
-                    colorize(u'changed', t['changed'], C.COLOR_CHANGED),
-                    colorize(u'unreachable', t['unreachable'], C.COLOR_UNREACHABLE),
-                    colorize(u'failed', t['failures'], C.COLOR_ERROR),
-                    colorize(u'skipped', t['skipped'], C.COLOR_SKIP),
-                    colorize(u'rescued', t['rescued'], C.COLOR_OK),
-                    colorize(u'ignored', t['ignored'], C.COLOR_WARN),
+                mark_nonsensitive(
+                    u"%s : %s %s %s %s %s %s %s" % (
+                        screen_hostname,
+                        colorize(u'ok', t['ok'], C.COLOR_OK),
+                        colorize(u'changed', t['changed'], C.COLOR_CHANGED),
+                        colorize(u'unreachable', t['unreachable'], C.COLOR_UNREACHABLE),
+                        colorize(u'failed', t['failures'], C.COLOR_ERROR),
+                        colorize(u'skipped', t['skipped'], C.COLOR_SKIP),
+                        colorize(u'rescued', t['rescued'], C.COLOR_OK),
+                        colorize(u'ignored', t['ignored'], C.COLOR_WARN),
+                    )
                 ),
                 screen_only=True
             )
 
+            log_hostname = mask_secrets(u"%s : " % hostcolor(h, t, False))
             self._display.display(
+                mark_nonsensitive(
                 u"%s : %s %s %s %s %s %s %s" % (
-                    hostcolor(h, t, False),
+                    log_hostname,
                     colorize(u'ok', t['ok'], None),
                     colorize(u'changed', t['changed'], None),
                     colorize(u'unreachable', t['unreachable'], None),
@@ -337,6 +347,7 @@ class CallbackModule(CallbackBase):
                     colorize(u'skipped', t['skipped'], None),
                     colorize(u'rescued', t['rescued'], None),
                     colorize(u'ignored', t['ignored'], None),
+                )
                 ),
                 log_only=True
             )

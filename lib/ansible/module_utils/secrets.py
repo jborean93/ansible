@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc as _c
 
 from ansible.module_utils._internal._secrets import _secret_masker
+from ansible.module_utils._internal._datatag._tags import NonsensitiveData
 
 
 def register_secret(value: str, /) -> str:
@@ -17,4 +18,7 @@ def register_secrets(values: _c.Iterable[str], /) -> None:
 
 def mask_secrets(value: str, /, *, mask_placeholder: str = '$REDACTED$') -> str:
     """Return a copy of the string with every registered secret it contains replaced by the placeholder."""
-    return _secret_masker.mask_string(value, mask_placeholder=mask_placeholder)
+    if NonsensitiveData.is_tagged_on(value):
+        return value #Not sure if this is the right layer. For now assuming it is.
+    else:
+        return _secret_masker.mask_string(value, mask_placeholder=mask_placeholder)

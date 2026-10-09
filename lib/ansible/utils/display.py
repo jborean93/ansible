@@ -57,6 +57,7 @@ from ansible._internal import _display_utils
 from ansible.module_utils._internal import _deprecator, _messages, _no_six
 from ansible.module_utils.common.text.converters import to_bytes, to_text
 from ansible.module_utils.datatag import deprecator_from_collection_name
+from ansible.module_utils._internal._datatag._tags import NonsensitiveData
 from ansible._internal._datatag._tags import TrustedAsTemplate
 from ansible.module_utils._internal import _traceback, _errors
 from ansible.utils.color import stringc
@@ -790,7 +791,7 @@ class Display(metaclass=Singleton):
         """
         Prints a header-looking line with cowsay or stars with length depending on terminal width (3 minimum)
         """
-        msg = to_text(msg)
+        msg = mask_secrets(to_text(msg))
 
         if self.b_cowsay and cows:
             try:
@@ -807,7 +808,7 @@ class Display(metaclass=Singleton):
         if star_len <= 3:
             star_len = 3
         stars = u"*" * star_len
-        self.display(u"\n%s %s" % (msg, stars), color=color)
+        self.display(NonsensitiveData().tag(u"\n%s %s" % (msg, stars)), color=color)
 
     @_proxy
     def banner_cowsay(self, msg: str, color: str | None = None) -> None:
@@ -825,7 +826,7 @@ class Display(metaclass=Singleton):
         runcmd.append(to_bytes(msg))
         cmd = subprocess.Popen(runcmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (out, err) = cmd.communicate()
-        self.display(u"%s\n" % to_text(out), color=color)
+        self.display(NonsensitiveData().tag(u"%s\n" % to_text(out)), color=color)
 
     def error_as_warning(
         self,
