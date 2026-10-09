@@ -439,6 +439,40 @@ class Display(metaclass=Singleton):
             return
         return wrapper
 
+    @staticmethod
+    def _mask_unless_nonsensitive(msg: str) -> str:
+        """
+        Return `msg` with every registered secret it contains replaced by a placeholder.
+
+        Messages tagged `NonsensitiveData` are returned unchanged; the producer has vouched for the whole string.
+        Every path that reaches `_log` must apply this first, since `_log` writes verbatim.
+        """
+        return msg if NonsensitiveData.is_tagged_on(msg) else mask_secrets(msg)
+
+    @staticmethod
+    def compose(template: str, /, *values: object) -> str:
+        """
+        Compose a message by interpolating `values` into `template`, a literal `%s`-style format string.
+
+        The template is scaffolding -- the labels, brackets and punctuation that make output readable -- and is
+        never data, so the composed result is vouched for as nonsensitive and `display` will not scan it again.
+        Each value is masked on the way in, unless it already carries `NonsensitiveData`, which is how a producer
+        such as `CallbackBase.host_label` says it has vouched for its own output.
+
+        Only `%s` conversions work, since every value is stringified in order to be masked. Pre-format anything
+        that needs another conversion, and tag the result if it is scaffolding rather than data.
+
+        The result is tagged, so it can be passed straight back in as a value to compose a wider message.
+        """
+        masked = tuple(Display._mask_unless_nonsensitive(value if isinstance(value, str) else str(value)) for value in values)
+
+        return NonsensitiveData().tag(template % masked)
+
+    @staticmethod
+    def _format_event(label: str, summary: _messages.SummaryBase, event: _traceback.TracebackEvent) -> str:
+        """Compose the displayable form of an event summary as `[LABEL]: <message>`."""
+        return Display.compose(f'[{label}]: %s', _display_utils.format_message(summary, _traceback.is_traceback_enabled(event)))
+
     @_proxy
     def display(
         self,
@@ -458,7 +492,7 @@ class Display(metaclass=Singleton):
         if not isinstance(msg, str):
             raise TypeError(f'Display message must be str, not: {msg.__class__.__name__}')
 
-        msg = mask_secrets(msg)
+        msg = self._mask_unless_nonsensitive(msg)
 
         # Convert Windows newlines to Unix newlines.
         # Some environments, such as Azure Pipelines, render `\r` as an additional `\n`.
@@ -552,24 +586,29 @@ class Display(metaclass=Singleton):
     def verbose(self, msg: str, host: str | None = None, caplevel: int = 2) -> None:
         if self.verbosity > caplevel:
             self._verbose_display(msg, host=host, caplevel=caplevel)
-
-        if self.log_verbosity > self.verbosity and self.log_verbosity > caplevel:
+        elif self.log_verbosity > caplevel:
+            # The message was not displayed, so `display` did not log it, but log verbosity calls for it.
+            # `log_verbosity` is never below `verbosity`, so reaching here implies it exceeds both.
             self._verbose_log(msg, host=host, caplevel=caplevel)
+
+    @staticmethod
+    def _verbose_message(msg: str, host: str | None) -> str:
+        """Compose a verbose line, optionally prefixed with the host it came from."""
+        if host is None:
+            return Display.compose('%s', msg)
+
+        # host names are not secrets, so the prefix is vouched for rather than masked
+        return Display.compose('<%s> %s', NonsensitiveData().tag(host), msg)
 
     @_proxy
     def _verbose_display(self, msg: str, host: str | None = None, caplevel: int = 2) -> None:
-        to_stderr = C.VERBOSE_TO_STDERR
-        if host is None:
-            self.display(msg, color=C.COLOR_VERBOSE, stderr=to_stderr)
-        else:
-            self.display("<%s> %s" % (host, msg), color=C.COLOR_VERBOSE, stderr=to_stderr)
+        self.display(self._verbose_message(msg, host), color=C.COLOR_VERBOSE, stderr=C.VERBOSE_TO_STDERR)
 
     @_proxy
     def _verbose_log(self, msg: str, host: str | None = None, caplevel: int = 2) -> None:
         # we send to log if log was configured with higher verbosity
-        if host is not None:
-            msg = "<%s> %s" % (host, msg)
-        self._log(msg, C.COLOR_VERBOSE, caplevel)
+        # this reaches `_log` without going through `display`, so masking must be applied here
+        self._log(self._verbose_message(msg, host), C.COLOR_VERBOSE, caplevel)
 
     @_meets_debug
     @_proxy
@@ -577,7 +616,9 @@ class Display(metaclass=Singleton):
         prefix = "%6d %0.5f" % (os.getpid(), time.time())
         if host is not None:
             prefix += f" [{host}]"
-        self.display(f"{prefix}: {msg}", color=C.COLOR_DEBUG, caplevel=-3)
+
+        # the pid/timestamp/host prefix is scaffolding, so it is vouched for rather than masked
+        self.display(self.compose("%s: %s", NonsensitiveData().tag(prefix), msg), color=C.COLOR_DEBUG, caplevel=-3)
 
     def get_deprecation_message(
         self,
@@ -722,8 +763,7 @@ class Display(metaclass=Singleton):
 
         self.warning('Deprecation warnings can be disabled by setting `deprecation_warnings=False` in ansible.cfg.')
 
-        msg = _display_utils.format_message(warning, _traceback.is_traceback_enabled(_traceback.TracebackEvent.DEPRECATED))
-        msg = f'[DEPRECATION WARNING]: {msg}'
+        msg = self._format_event('DEPRECATION WARNING', warning, _traceback.TracebackEvent.DEPRECATED)
 
         if self._deduplicate(msg, self._deprecations):
             return
@@ -773,8 +813,7 @@ class Display(metaclass=Singleton):
         # This is the post-proxy half of the `warning` implementation.
         # Any logic that must occur in the primary controller process needs to be implemented here.
 
-        msg = _display_utils.format_message(warning, _traceback.is_traceback_enabled(_traceback.TracebackEvent.WARNING))
-        msg = f"[WARNING]: {msg}"
+        msg = self._format_event('WARNING', warning, _traceback.TracebackEvent.WARNING)
 
         if self._deduplicate(msg, self._warns):
             return
@@ -790,8 +829,11 @@ class Display(metaclass=Singleton):
     def banner(self, msg: str, color: str | None = None, cows: bool = True) -> None:
         """
         Prints a header-looking line with cowsay or stars with length depending on terminal width (3 minimum)
+
+        Callers that compose a banner from scaffolding and data -- `TASK [name]` and the like -- should use
+        `compose`, so the scaffolding survives; by the time it arrives here the two are indistinguishable.
         """
-        msg = mask_secrets(to_text(msg))
+        msg = self._mask_unless_nonsensitive(to_text(msg))
 
         if self.b_cowsay and cows:
             try:
@@ -902,8 +944,7 @@ class Display(metaclass=Singleton):
         # This is the post-proxy half of the `error` implementation.
         # Any logic that must occur in the primary controller process needs to be implemented here.
 
-        msg = _display_utils.format_message(error, _traceback.is_traceback_enabled(_traceback.TracebackEvent.ERROR))
-        msg = f'[ERROR]: {msg}'
+        msg = self._format_event('ERROR', error, _traceback.TracebackEvent.ERROR)
 
         if self._deduplicate(msg, self._errors):
             return
