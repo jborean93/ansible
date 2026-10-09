@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import contextlib
 
-from ansible.module_utils.secrets import register_secret, mask_secrets
+from ansible.module_utils.secrets import register_secret
 
 try:
     import curses
@@ -58,6 +58,7 @@ from ansible.module_utils._internal import _deprecator, _messages, _no_six
 from ansible.module_utils.common.text.converters import to_bytes, to_text
 from ansible.module_utils.datatag import deprecator_from_collection_name
 from ansible.module_utils._internal._datatag._tags import NonsensitiveData
+from ansible.module_utils._internal._secrets_object import mask_unless_nonsensitive
 from ansible._internal._datatag._tags import TrustedAsTemplate
 from ansible.module_utils._internal import _traceback, _errors
 from ansible.utils.color import stringc
@@ -440,16 +441,6 @@ class Display(metaclass=Singleton):
         return wrapper
 
     @staticmethod
-    def _mask_unless_nonsensitive(msg: str) -> str:
-        """
-        Return `msg` with every registered secret replaced by a placeholder.
-
-        Messages tagged `NonsensitiveData` are returned unchanged; the producer has vouched for the whole string.
-        Every path that reaches `_log` must apply this first, since `_log` writes verbatim.
-        """
-        return msg if NonsensitiveData.is_tagged_on(msg) else mask_secrets(msg)
-
-    @staticmethod
     def compose(template: str, /, *values: object) -> str:
         """
         Compose a message by interpolating `values` into `template`, a literal `%s`-style format string.
@@ -461,7 +452,7 @@ class Display(metaclass=Singleton):
 
         Only `%s` conversions work, since every value is stringified in order to be masked.
         """
-        masked = tuple(Display._mask_unless_nonsensitive(value if isinstance(value, str) else str(value)) for value in values)
+        masked = tuple(mask_unless_nonsensitive(value if isinstance(value, str) else str(value)) for value in values)
 
         return NonsensitiveData().tag(template % masked)
 
@@ -488,7 +479,7 @@ class Display(metaclass=Singleton):
         if not isinstance(msg, str):
             raise TypeError(f'Display message must be str, not: {msg.__class__.__name__}')
 
-        msg = self._mask_unless_nonsensitive(msg)
+        msg = mask_unless_nonsensitive(msg)
 
         # Convert Windows newlines to Unix newlines.
         # Some environments, such as Azure Pipelines, render `\r` as an additional `\n`.
@@ -825,7 +816,7 @@ class Display(metaclass=Singleton):
         Use `compose` to build a banner from scaffolding and data; by the time it arrives here the two are
         indistinguishable and the whole line is masked.
         """
-        msg = self._mask_unless_nonsensitive(to_text(msg))
+        msg = mask_unless_nonsensitive(to_text(msg))
 
         if self.b_cowsay and cows:
             try:
