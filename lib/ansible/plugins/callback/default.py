@@ -68,11 +68,11 @@ class CallbackModule(CallbackBase):
         else:
             if self._display.verbosity < 2 and self.get_option('show_task_path_on_failure'):
                 self._print_task_path(result.task)
-            msg = "fatal: [%s]: FAILED! => %s" % (host_label, self._dump_results(result.result))
+            msg = self._display.compose("fatal: [%s]: FAILED! => %s", host_label, self._dump_results(result.result))
             self._display.display(msg, color=C.COLOR_ERROR, stderr=self.get_option('display_failed_stderr'))
 
         if ignore_errors:
-            self._display.display("...ignoring", color=C.COLOR_SKIP)
+            self._display.display(self._display.compose("...ignoring"), color=C.COLOR_SKIP)
 
     def v2_runner_on_ok(self, result: CallbackTaskResult) -> None:
         host_label = self.host_label(result)
@@ -85,7 +85,7 @@ class CallbackModule(CallbackBase):
             if self._last_task_banner != result.task._uuid:
                 self._print_task_banner(result.task)
 
-            msg = "changed: [%s]" % (host_label,)
+            msg = self._display.compose("changed: [%s]", host_label)
             color = C.COLOR_CHANGED
         else:
             if not self.get_option('display_ok_hosts'):
@@ -94,7 +94,7 @@ class CallbackModule(CallbackBase):
             if self._last_task_banner != result.task._uuid:
                 self._print_task_banner(result.task)
 
-            msg = "ok: [%s]" % (host_label,)
+            msg = self._display.compose("ok: [%s]", host_label)
             color = C.COLOR_OK
 
         self._handle_warnings_and_exception(result)
@@ -105,7 +105,8 @@ class CallbackModule(CallbackBase):
             self._clean_results(result.result, result.task.action)
 
             if self._run_is_verbose(result):
-                msg += " => %s" % (self._dump_results(result.result),)
+                msg = self._display.compose("%s => %s", msg, self._dump_results(result.result))
+
             self._display.display(msg, color=color)
 
     def v2_runner_on_skipped(self, result: CallbackTaskResult) -> None:
@@ -121,9 +122,9 @@ class CallbackModule(CallbackBase):
             if result.task.loop is not None and 'results' in result.result:
                 self._process_items(result)
 
-            msg = "skipping: [%s]" % result.host.get_name()
+            msg = self._display.compose("skipping: [%s]", self._mark_nonsensitive(result.host.get_name()))
             if self._run_is_verbose(result):
-                msg += " => %s" % self._dump_results(result.result)
+                msg = self._display.compose("%s => %s", msg, self._dump_results(result.result))
             self._display.display(msg, color=C.COLOR_SKIP)
 
     def v2_runner_on_unreachable(self, result: CallbackTaskResult) -> None:
@@ -133,17 +134,17 @@ class CallbackModule(CallbackBase):
         self._handle_warnings_and_exception(result)
 
         host_label = self.host_label(result)
-        msg = "fatal: [%s]: UNREACHABLE! => %s" % (host_label, self._dump_results(result.result))
+        msg = self._display.compose("fatal: [%s]: UNREACHABLE! => %s", host_label, self._dump_results(result.result))
         self._display.display(msg, color=C.COLOR_UNREACHABLE, stderr=self.get_option('display_failed_stderr'))
 
         if result.task.ignore_unreachable:
-            self._display.display("...ignoring", color=C.COLOR_SKIP)
+            self._display.display(self._display.compose("...ignoring"), color=C.COLOR_SKIP)
 
     def v2_playbook_on_no_hosts_matched(self):
-        self._display.display("skipping: no hosts matched", color=C.COLOR_SKIP)
+        self._display.display(self._display.compose("skipping: no hosts matched"), color=C.COLOR_SKIP)
 
     def v2_playbook_on_no_hosts_remaining(self):
-        self._display.banner("NO MORE HOSTS LEFT")
+        self._display.banner(self._display.compose("NO MORE HOSTS LEFT"))
 
     def v2_playbook_on_task_start(self, task, is_conditional):
         self._task_start(task, prefix='TASK')
@@ -194,7 +195,13 @@ class CallbackModule(CallbackBase):
             checkmsg = " [CHECK MODE]"
         else:
             checkmsg = ""
-        self._display.banner(u"%s [%s%s]%s" % (prefix, task_name, args, checkmsg))
+        self._display.banner(self._display.compose(
+            u"%s [%s%s]%s",
+            self._mark_nonsensitive(prefix),
+            task_name,
+            args,
+            self._mark_nonsensitive(checkmsg),
+        ))
 
         if self._display.verbosity >= 2:
             self._print_task_path(task)
@@ -206,7 +213,7 @@ class CallbackModule(CallbackBase):
 
     def v2_runner_on_start(self, host, task):
         if self.get_option('show_per_host_start'):
-            self._display.display(" [started %s on %s]" % (task, host), color=C.COLOR_OK)
+            self._display.display(self._display.compose(" [started %s on %s]", task, self._mark_nonsensitive(str(host))), color=C.COLOR_OK)
 
     def v2_playbook_on_play_start(self, play):
         name = play.get_name().strip()
@@ -215,9 +222,9 @@ class CallbackModule(CallbackBase):
         else:
             checkmsg = ""
         if not name:
-            msg = u"PLAY%s" % checkmsg
+            msg = self._display.compose(u"PLAY%s", self._mark_nonsensitive(checkmsg))
         else:
-            msg = u"PLAY [%s]%s" % (name, checkmsg)
+            msg = self._display.compose(u"PLAY [%s]%s", name, self._mark_nonsensitive(checkmsg))
 
         self._play = play
 
@@ -247,7 +254,7 @@ class CallbackModule(CallbackBase):
             if self._last_task_banner != result.task._uuid:
                 self._print_task_banner(result.task)
 
-            msg = 'changed'
+            template = "changed: [%s] => (item=%s)"
             color = C.COLOR_CHANGED
         else:
             if not self.get_option('display_ok_hosts'):
@@ -256,15 +263,16 @@ class CallbackModule(CallbackBase):
             if self._last_task_banner != result.task._uuid:
                 self._print_task_banner(result.task)
 
-            msg = 'ok'
+            template = "ok: [%s] => (item=%s)"
             color = C.COLOR_OK
 
         self._handle_warnings_and_exception(result)
 
-        msg = "%s: [%s] => (item=%s)" % (msg, host_label, self._get_item_label(result.result))
+        msg = self._display.compose(template, host_label, self._get_item_label(result.result))
         self._clean_results(result.result, result.task.action)
         if self._run_is_verbose(result):
-            msg += " => %s" % self._dump_results(result.result)
+            msg = self._display.compose("%s => %s", msg, self._dump_results(result.result))
+
         self._display.display(msg, color=color)
 
     def v2_runner_item_on_failed(self, result: CallbackTaskResult) -> None:
@@ -275,10 +283,14 @@ class CallbackModule(CallbackBase):
 
         host_label = self.host_label(result)
 
-        msg = "failed: [%s]" % (host_label,)
         self._clean_results(result.result, result.task.action)
         self._display.display(
-            msg + " (item=%s) => %s" % (self._get_item_label(result.result), self._dump_results(result.result)),
+            self._display.compose(
+                "failed: [%s] (item=%s) => %s",
+                host_label,
+                self._get_item_label(result.result),
+                self._dump_results(result.result),
+            ),
             color=C.COLOR_ERROR,
             stderr=self.get_option('display_failed_stderr')
         )
@@ -291,52 +303,65 @@ class CallbackModule(CallbackBase):
             self._handle_warnings_and_exception(result)
 
             self._clean_results(result.result, result.task.action)
-            msg = "skipping: [%s] => (item=%s) " % (result.host.get_name(), self._get_item_label(result.result))
+            msg = self._display.compose(
+                "skipping: [%s] => (item=%s) ",
+                self._mark_nonsensitive(result.host.get_name()),
+                self._get_item_label(result.result),
+            )
             if self._run_is_verbose(result):
-                msg += " => %s" % self._dump_results(result.result)
+                msg = self._display.compose("%s => %s", msg, self._dump_results(result.result))
             self._display.display(msg, color=C.COLOR_SKIP)
 
     def v2_playbook_on_include(self, included_file: IncludedFile) -> None:
         if not self.get_option("display_included_hosts"):
             return
 
-        msg = 'included: %s for %s' % (included_file._filename, ", ".join([h.name for h in included_file._hosts]))
+        msg = self._display.compose(
+            'included: %s for %s',
+            self._mark_nonsensitive(included_file._filename),
+            self._mark_nonsensitive(", ".join([h.name for h in included_file._hosts])),
+        )
         label = self._get_item_label(included_file._vars)
         if label:
-            msg += " => (item=%s)" % label
+            # unlike item labels elsewhere in this callback, these vars never passed through `mask_object`
+            msg = self._display.compose("%s => (item=%s)", msg, label)
         self._display.display(msg, color=C.COLOR_INCLUDED)
 
     def v2_playbook_on_stats(self, stats):
-        self._display.banner("PLAY RECAP")
+        self._display.banner(self._display.compose("PLAY RECAP"))
 
         hosts = sorted(stats.processed.keys())
+
         for h in hosts:
             t = stats.summarize(h)
-
             self._display.display(
-                u"%s : %s %s %s %s %s %s %s" % (
-                    hostcolor(h, t),
-                    colorize(u'ok', t['ok'], C.COLOR_OK),
-                    colorize(u'changed', t['changed'], C.COLOR_CHANGED),
-                    colorize(u'unreachable', t['unreachable'], C.COLOR_UNREACHABLE),
-                    colorize(u'failed', t['failures'], C.COLOR_ERROR),
-                    colorize(u'skipped', t['skipped'], C.COLOR_SKIP),
-                    colorize(u'rescued', t['rescued'], C.COLOR_OK),
-                    colorize(u'ignored', t['ignored'], C.COLOR_WARN),
+                self._mark_nonsensitive(
+                    u"%s : %s %s %s %s %s %s %s" % (
+                        hostcolor(h, t),
+                        colorize(u'ok', t['ok'], C.COLOR_OK),
+                        colorize(u'changed', t['changed'], C.COLOR_CHANGED),
+                        colorize(u'unreachable', t['unreachable'], C.COLOR_UNREACHABLE),
+                        colorize(u'failed', t['failures'], C.COLOR_ERROR),
+                        colorize(u'skipped', t['skipped'], C.COLOR_SKIP),
+                        colorize(u'rescued', t['rescued'], C.COLOR_OK),
+                        colorize(u'ignored', t['ignored'], C.COLOR_WARN),
+                    )
                 ),
                 screen_only=True
             )
 
             self._display.display(
-                u"%s : %s %s %s %s %s %s %s" % (
-                    hostcolor(h, t, False),
-                    colorize(u'ok', t['ok'], None),
-                    colorize(u'changed', t['changed'], None),
-                    colorize(u'unreachable', t['unreachable'], None),
-                    colorize(u'failed', t['failures'], None),
-                    colorize(u'skipped', t['skipped'], None),
-                    colorize(u'rescued', t['rescued'], None),
-                    colorize(u'ignored', t['ignored'], None),
+                self._mark_nonsensitive(
+                    u"%s : %s %s %s %s %s %s %s" % (
+                        hostcolor(h, t, False),
+                        colorize(u'ok', t['ok'], None),
+                        colorize(u'changed', t['changed'], None),
+                        colorize(u'unreachable', t['unreachable'], None),
+                        colorize(u'failed', t['failures'], None),
+                        colorize(u'skipped', t['skipped'], None),
+                        colorize(u'rescued', t['rescued'], None),
+                        colorize(u'ignored', t['ignored'], None),
+                    )
                 ),
                 log_only=True
             )
@@ -345,27 +370,28 @@ class CallbackModule(CallbackBase):
 
         # print custom stats if required
         if stats.custom and self.get_option('show_custom_stats'):
-            self._display.banner("CUSTOM STATS: ")
+            self._display.banner(self._display.compose("CUSTOM STATS: "))
             # per host
             # TODO: come up with 'pretty format'
             for k in sorted(stats.custom.keys()):
                 if k == '_run':
                     continue
-                self._display.display('\t%s: %s' % (k, self._dump_results(stats.custom[k], indent=1).replace('\n', '')))
+                # custom stats never passed through `mask_object`, so the key is data too
+                self._display.display(self._display.compose('\t%s: %s', k, self._dump_results(stats.custom[k], indent=1).replace('\n', '')))
 
             # print per run custom stats
             if '_run' in stats.custom:
                 self._display.display("", screen_only=True)
-                self._display.display('\tRUN: %s' % self._dump_results(stats.custom['_run'], indent=1).replace('\n', ''))
+                self._display.display(self._display.compose('\tRUN: %s', self._dump_results(stats.custom['_run'], indent=1).replace('\n', '')))
             self._display.display("", screen_only=True)
 
         if context.CLIARGS['check'] and self.get_option('check_mode_markers'):
-            self._display.banner("DRY RUN")
+            self._display.banner(self._display.compose("DRY RUN"))
 
     def v2_playbook_on_start(self, playbook):
         if self._display.verbosity > 1:
             from os.path import basename
-            self._display.banner("PLAYBOOK: %s" % basename(playbook._file_name))
+            self._display.banner(self._display.compose("PLAYBOOK: %s", self._mark_nonsensitive(basename(playbook._file_name))))
 
         # show CLI arguments
         if self._display.verbosity > 3:
@@ -379,14 +405,19 @@ class CallbackModule(CallbackBase):
                     self._display.display('%s: %s' % (argument, val), color=C.COLOR_VERBOSE, screen_only=True)
 
         if context.CLIARGS['check'] and self.get_option('check_mode_markers'):
-            self._display.banner("DRY RUN")
+            self._display.banner(self._display.compose("DRY RUN"))
 
     def v2_runner_retry(self, result: CallbackTaskResult) -> None:
         task_name = result.task_name or result.task
         host_label = self.host_label(result)
-        msg = "FAILED - RETRYING: [%s]: %s (%d retries left)." % (host_label, task_name, result.result['retries'] - result.result['attempts'])
+        msg = self._display.compose(
+            "FAILED - RETRYING: [%s]: %s (%s retries left).",
+            host_label,
+            task_name,
+            result.result['retries'] - result.result['attempts'],
+        )
         if self._run_is_verbose(result, verbosity=2):
-            msg += "Result was: %s" % self._dump_results(result.result)
+            msg = self._display.compose("%sResult was: %s", msg, self._dump_results(result.result))
         self._display.display(msg, color=C.COLOR_DEBUG)
 
     def v2_runner_on_async_poll(self, result: CallbackTaskResult) -> None:
@@ -395,14 +426,14 @@ class CallbackModule(CallbackBase):
         started = result.result.get('started')
         finished = result.result.get('finished')
         self._display.display(
-            'ASYNC POLL on %s: jid=%s started=%s finished=%s' % (host, jid, started, finished),
+            self._display.compose('ASYNC POLL on %s: jid=%s started=%s finished=%s', self._mark_nonsensitive(host), jid, started, finished),
             color=C.COLOR_DEBUG
         )
 
     def v2_runner_on_async_ok(self, result: CallbackTaskResult) -> None:
         host = result.host.get_name()
         jid = result.result.get('ansible_job_id')
-        self._display.display("ASYNC OK on %s: jid=%s" % (host, jid), color=C.COLOR_DEBUG)
+        self._display.display(self._display.compose("ASYNC OK on %s: jid=%s", self._mark_nonsensitive(host), jid), color=C.COLOR_DEBUG)
 
     def v2_runner_on_async_failed(self, result: CallbackTaskResult) -> None:
         host = result.host.get_name()
@@ -412,8 +443,12 @@ class CallbackModule(CallbackBase):
         jid = result.result.get('ansible_job_id')
         if not jid and 'async_result' in result.result:
             jid = result.result['async_result'].get('ansible_job_id')
-        self._display.display("ASYNC FAILED on %s: jid=%s" % (host, jid), color=C.COLOR_DEBUG)
+        self._display.display(self._display.compose("ASYNC FAILED on %s: jid=%s", self._mark_nonsensitive(host), jid), color=C.COLOR_DEBUG)
 
     def v2_playbook_on_notify(self, handler, host):
         if self._display.verbosity > 1:
-            self._display.display("NOTIFIED HANDLER %s for %s" % (handler.get_name(), host), color=C.COLOR_VERBOSE, screen_only=True)
+            self._display.display(
+                self._display.compose("NOTIFIED HANDLER %s for %s", handler.get_name(), self._mark_nonsensitive(str(host))),
+                color=C.COLOR_VERBOSE,
+                screen_only=True,
+            )

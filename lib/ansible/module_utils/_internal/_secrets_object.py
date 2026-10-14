@@ -4,6 +4,7 @@ import collections.abc as _c
 import typing as _t
 
 from ansible.module_utils._internal._datatag import AnsibleTaggedObject, AnsibleTagHelper
+from ansible.module_utils._internal._datatag._tags import NonsensitiveData
 from ansible.module_utils._internal._secrets import AnsibleSecretMaskError, SecretMasker, _secret_masker
 
 _K = _t.TypeVar("_K")
@@ -60,6 +61,20 @@ def mask_object(
             # We deliberately do not include the value or original exception
             # to avoid leaking secrets through the exception.
             raise AnsibleSecretMaskError("secret masking failed") from None
+
+
+def mask_unless_nonsensitive(value: str, /, *, mask_placeholder: str = "$REDACTED$") -> str:
+    """
+    Return ``value`` with every registered secret replaced by the placeholder, unless it is tagged
+    ``NonsensitiveData``, in which case the producer has vouched for the whole string and it is returned as-is.
+
+    The tag is honoured here rather than in ``SecretMasker.mask_string``, which must stay in lockstep with the
+    C# implementation and knows nothing about tags.
+    """
+    if NonsensitiveData.is_tagged_on(value):
+        return value
+
+    return _secret_masker.mask_string(value, mask_placeholder=mask_placeholder)
 
 
 class _Walker:
